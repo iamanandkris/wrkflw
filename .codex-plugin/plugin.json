@@ -1,0 +1,25 @@
+{
+  "name": "wrkflw",
+  "version": "0.1.0",
+  "description": "Workflow-oriented planning and execution helper for staged engineering delivery.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "wrkflw",
+    "shortDescription": "Stage work from idea to PR",
+    "longDescription": "Provides workflow-guided discussion, local workflow workspace scaffolding, and reusable prompts for planning, OpenSpec, implementation, and review.",
+    "developerName": "Anand Krishnan",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use wrkflw:discuss to shape this initiative.",
+      "Break this work into small mergeable slices.",
+      "Set gates, OpenSpec steps, and PR-sized tasks.",
+      "If a gate is rejected, record the reason and route the workflow to the correct rework stage.",
+      "Support wrkflw:approve, wrkflw:reject, wrkflw:rework, wrkflw:refine, wrkflw:rework-item, wrkflw:proceed-only, wrkflw:defer, and wrkflw:next as workflow control commands."
+    ],
+    "brandColor": "#0F766E"
+  }
+}

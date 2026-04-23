@@ -1,0 +1,129 @@
+---
+name: wrkflw-discuss
+description: Use when the user writes wrkflw:discuss, asks to start a reusable engineering workflow, or wants a workflow-guided discussion that proceeds through stages, asks relevant questions, and stops at human approval gates.
+---
+
+# wrkflw:discuss
+
+Treat `wrkflw:discuss "..."` as an explicit request to start or continue a staged workflow discussion.
+
+When starting a workflow, first look for a design seed:
+- auto-detect `design.md` or `docs/design.md` in the active repo
+- if the user gives an explicit file path, prefer that path instead
+- seed the workflow from that file before shaping epic/story artifacts
+- record the seed in `.workflow/<slug>/links.md` and `.workflow/<slug>/design-seed.md`
+
+Also treat these as workflow control intents:
+- `wrkflw:approve`
+- `wrkflw:approve "..."`
+- `wrkflw:reject "..."`
+- `wrkflw:rework "..."`
+- `wrkflw:refine "..."`
+- `wrkflw:rework-item "..."`
+- `wrkflw:proceed-only "..."`
+- `wrkflw:defer "..."`
+- `wrkflw:openspec-sync`
+- `wrkflw:next`
+
+## Behavior
+
+1. Classify the request as epic, story, bug, spike, or refactor.
+2. Identify the current stage.
+3. Ask only the minimum relevant questions.
+4. Recommend the next tool and mode.
+5. Stop at human approval gates.
+6. If useful, initialize a local workflow workspace in the current repo.
+7. If a gate is rejected, record the rejection and route work back to the right prior stage.
+8. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
+
+## Workspace Convention
+
+Prefer a local workflow folder in the active repo:
+
+```text
+.workflow/<slug>/
+```
+
+with files such as:
+- `context.md`
+- `state.md`
+- `decisions.md`
+- `links.md`
+- `design-seed.md` when a design file is used
+
+State should capture:
+- current stage
+- human gate status
+- rework target
+- rejection reason
+- next action
+
+The workflow should also maintain a live PlantUML diagram at:
+
+```text
+.workflow/<slug>/diagram.puml
+```
+
+Update it after each workflow action and OpenSpec bridge action so progress is visible in near real time.
+
+If the workspace is missing and the user wants one, run the companion script:
+
+```text
+python3 scripts/init_workflow_workspace.py --slug <slug> --root <repo-root> [--design-file <path>]
+```
+
+To update an existing workflow state after approval or rejection, use the companion state script if available.
+
+Preferred command handler:
+
+```text
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next> [--reason "..."] [--items "..."] [--design-file <path>]
+```
+
+Behavior expectations:
+- `wrkflw:discuss` should prefer the design seed as the initial source of truth when one exists, instead of relying only on the user’s one-line summary.
+- `wrkflw:approve --design <path>` or equivalent explicit file-path guidance should reseed the workflow from that design file before continuing, so the workflow can start from analyzed file context instead of only conversational text.
+- `wrkflw:approve` should advance the workflow from the current gate to the next stage.
+- `wrkflw:approve "..."` should also record why the stage was accepted.
+- `wrkflw:reject "..."` should record the reason, set the rework target, and move the workflow back to the nearest prior stage that can address the feedback.
+- `wrkflw:next` should advance non-gated stages or report that a human gate is still pending.
+- `wrkflw:rework "..."` should behave like a targeted rejection/revision trigger.
+- `wrkflw:refine "..."` should keep the workflow at the current stage, record the refinement request, and update the next action without treating it as a hard rejection.
+- `wrkflw:rework-item "..."` should keep the workflow at the current stage, mark the named epic item or story for targeted rework, and update the next action accordingly.
+- `wrkflw:proceed-only "..."` should restrict the active scope to the named epic items or stories and defer everything else for now.
+- `wrkflw:defer "..."` should explicitly exclude or postpone the named epic items or stories without rejecting the entire stage.
+- For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
+- `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
+
+Dependency convention:
+- Prefer declaring dependencies in `stories.md` with a line such as `Depends on: Story 1, Story 3`.
+- If no dependencies are declared, the workflow may proceed but should note that dependency validation is based only on explicit declarations, not inference.
+
+OpenSpec handoff convention:
+- `wrkflw` owns orchestration before and after spec authoring.
+- OpenSpec owns the spec artifacts during `spec-authoring`.
+- When `spec-authoring` is reached and OpenSpec is available, prefer creating or updating a real change in `openspec/changes/<slug>/`.
+- Record the active OpenSpec change in `.workflow/<slug>/links.md`.
+- When moving to the next story, create a new OpenSpec change for that story and keep previous changes as historical context. Continuity comes from:
+  - the workflow artifacts in `.workflow/<slug>/`
+  - earlier OpenSpec changes in `openspec/changes/`
+- the implemented code already present in the repo
+- explicit story dependencies declared in `stories.md`
+
+Release-planning convention:
+- Entering `release-planning` should create a concrete `release-plan.md` artifact in `.workflow/<slug>/`.
+- The workflow should judge whether the current work is:
+  - **production-worthy**: appropriate to release/merge as a meaningful increment
+  - **local-only progress**: valid as local validation/prototyping but not yet a meaningful production increment
+- That judgment should be recorded explicitly with rationale.
+- If the work is not production-worthy, the release plan should say the acceptance bar is local execution and verification only.
+
+## Relationship To Global Skill
+
+Use the broader workflow-orchestrator conventions:
+- shape before coding
+- use OpenSpec per story
+- keep PRs small
+- use Plan mode for decomposition and sequencing
+- stop at human gates
+- rework the nearest prior stage when a gate is rejected
