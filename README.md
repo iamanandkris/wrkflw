@@ -22,7 +22,9 @@ It also supports:
 
 ## Install
 
-Clone the plugin into your local Codex plugins directory:
+### Quick install
+
+Clone the repo into your local plugins directory:
 
 ```bash
 git clone git@github.com:iamanandkris/wrkflw.git ~/plugins/wrkflw
@@ -30,11 +32,56 @@ git clone git@github.com:iamanandkris/wrkflw.git ~/plugins/wrkflw
 
 If you use a custom plugin path, clone it there instead.
 
-Then make sure your local Codex plugin marketplace/config points at the plugin folder, for example:
+Or use the helper script from an existing clone:
+
+```bash
+./scripts/install_local.sh
+```
+
+That installs or updates the plugin into:
 
 ```text
 ~/plugins/wrkflw
 ```
+
+### Make Codex discover it
+
+Make sure your local Codex plugin marketplace/config points at the plugin folder.
+
+If you already use a marketplace file such as:
+
+```text
+~/.agents/plugins/marketplace.json
+```
+
+add an entry that points at the cloned plugin directory.
+
+Minimal example:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "wrkflw",
+      "path": "/Users/<you>/plugins/wrkflw"
+    }
+  ]
+}
+```
+
+If your Codex setup discovers plugins directly from a local plugin root, just placing the repo here is enough:
+
+```text
+~/plugins/wrkflw
+```
+
+### VS Code / Codex note
+
+This repo is a Codex plugin plus skill bundle. It does not install as a generic VS Code marketplace extension. The usual path is:
+
+1. clone the repo locally
+2. point your Codex plugin configuration at that local path
+3. restart or reload Codex if plugin discovery is cached
 
 ## Requirements
 
@@ -48,6 +95,12 @@ Start a workflow:
 
 ```text
 wrkflw:discuss "Implement feature X"
+```
+
+Start a workflow from a design seed:
+
+```text
+wrkflw:discuss "Start this workflow from the design in docs/design.md"
 ```
 
 If the repo contains `design.md` or `docs/design.md`, `wrkflw` will use that as a seed automatically.
