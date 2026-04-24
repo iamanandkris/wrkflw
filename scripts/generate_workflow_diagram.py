@@ -8,6 +8,7 @@ from pathlib import Path
 
 STAGES = [
     "discuss",
+    "capability-review",
     "epic-shaping",
     "story-slicing",
     "story-enrichment",
@@ -21,6 +22,7 @@ STAGES = [
 
 STAGE_ALIASES = {stage: stage.replace("-", "_") for stage in STAGES}
 GATED_STAGES = {
+    "capability-review",
     "epic-shaping",
     "story-slicing",
     "story-enrichment",
@@ -227,10 +229,12 @@ def stage_detail(stage: str, state: dict[str, str], links: dict[str, str], stori
     current_stage = state.get("Current stage", "")
     openspec = links.get("OpenSpec change", "") or "-"
     auto = "on" if gates.get(stage, False) else "off"
-    if current_stage in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
+    if current_stage in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         openspec = "-"
     if stage == "discuss":
         return f"goal framing\\nactive: {active}"
+    if stage == "capability-review":
+        return f"capability gate\\nauto: {auto}"
     if stage == "epic-shaping":
         return f"epic review\\nauto: {auto}"
     if stage == "story-slicing":
@@ -310,15 +314,16 @@ def write_flow_diagram(
         detail = stage_detail(stage, state, links, stories, gates)
         lines.append(f'state "{stage}\\n{detail}" as {STAGE_ALIASES[stage]} {stage_color(stage, current)}')
     current_openspec = links.get("OpenSpec change", "") or "-"
-    if current in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
+    if current in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         current_openspec = "-"
     active_task_lines = task_summary_lines(completed_tasks, pending_tasks)
-    if current in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
+    if current in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         active_task_lines = ["tasks pending for active story"]
 
     lines.extend(
         [
-            "discuss --> epic_shaping",
+            "discuss --> capability_review",
+            "capability_review --> epic_shaping",
             "epic_shaping --> story_slicing",
             "story_slicing --> story_enrichment",
             "story_enrichment --> spec_authoring",
@@ -373,7 +378,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
 
     active_story = state.get("Active items", "").split(",", 1)[0].strip()
     current_stage = state.get("Current stage", "")
-    openspec_change = links.get("OpenSpec change", "") if current_stage not in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"} else ""
+    openspec_change = links.get("OpenSpec change", "") if current_stage not in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"} else ""
     openspec_tasks_path = Path(wf.parent.parent / openspec_change / "tasks.md") if openspec_change else None
     workflow_tasks_text = read_text(wf / "tasks.md")
     openspec_tasks_text = read_text(openspec_tasks_path) if openspec_tasks_path and openspec_tasks_path.exists() else ""
@@ -456,7 +461,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
                 f'package "{task_package}" #white {{',
             ]
         )
-        if current_stage in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
+        if current_stage in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
             lines.append(f'  rectangle "{puml_text(active_story)}\\nSpec/tasks pending" as {task_node} #8ecae6')
         else:
             lines.append(f'  rectangle "{puml_text(active_story)}\\nOpenSpec: {puml_text(openspec_change or "-")}" as {task_node} {task_header_color}')

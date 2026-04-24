@@ -346,6 +346,21 @@ openspec/changes/<change-slug>/
 
 On final closeout, it archives the change automatically.
 
+`wrkflw` now also carries capability coverage into the OpenSpec artifacts:
+
+- `proposal.md` includes:
+  - workflow mode
+  - capability categories intentionally covered by the active story
+  - required/recommended capabilities that remain deferred
+- `spec.md` includes:
+  - explicit coverage scenarios for the current story
+  - explicit deferred-coverage visibility when the story is only a partial slice
+- `tasks.md` includes:
+  - tasks to make the intended capability coverage explicit
+  - tasks to leave follow-up context for deferred capability categories
+
+This means `capabilities.md` does not just help early story slicing. It now flows through into OpenSpec so spec authoring keeps the broader capability intent visible.
+
 ## Notes
 
 - Dependency challenges are based on explicit story dependencies declared in `stories.md`.

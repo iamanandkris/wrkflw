@@ -66,6 +66,7 @@ Capability inventory should capture:
 - the capability categories the workflow should consider before writing narrow stories too early
 
 Gate configuration should capture, per gated stage:
+- `capability-review.autoApprove: true|false`
 - `<stage>.autoApprove: true|false`
 
 If `autoApprove` is `true` for a gate, the workflow should not stop for human approval at that stage and should continue automatically to the next stage.
@@ -95,6 +96,7 @@ python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --co
 Behavior expectations:
 - `wrkflw:discuss` should prefer the design seed as the initial source of truth when one exists, instead of relying only on the user’s one-line summary.
 - `wrkflw:discuss` should also create or refresh `.workflow/<slug>/capabilities.md` so story slicing starts from capability categories instead of only the first obvious implementation slice.
+- `wrkflw` should stop at a dedicated capability-review gate after `discuss` so the user can approve, reject, or refine the generated capability inventory before epic shaping continues.
 - `wrkflw:approve --design <path>` or equivalent explicit file-path guidance should reseed the workflow from that design file before continuing, so the workflow can start from analyzed file context instead of only conversational text.
 - `wrkflw` should respect `.workflow/<slug>/gates.md` when deciding whether a human gate must pause the workflow.
 - When a gated stage is entered with `<stage>.autoApprove: true`, `wrkflw` should record that the gate was auto-approved and continue automatically.

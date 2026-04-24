@@ -76,6 +76,68 @@ def section_bullets(sections: dict[str, list[str]], name: str) -> list[str]:
     return bullets
 
 
+def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]:
+    mode = "general-delivery"
+    capabilities: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    current_section: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if stripped.startswith("- Mode:"):
+            mode = stripped.split(":", 1)[1].strip()
+            continue
+        if line.startswith("### "):
+            if current is not None:
+                capabilities.append(current)
+            current = {"name": line[4:].strip(), "status": "optional", "why": "", "why_now": "", "story_prompts": []}
+            current_section = None
+            continue
+        if current is None:
+            continue
+        if stripped.startswith("- Status:"):
+            current["status"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- Why:"):
+            current["why"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- Why now:"):
+            current["why_now"] = stripped.split(":", 1)[1].strip()
+        elif stripped == "- Story prompts:":
+            current_section = "story_prompts"
+        elif current_section == "story_prompts" and stripped.startswith("- "):
+            prompts = current["story_prompts"]  # type: ignore[assignment]
+            prompts.append(stripped[2:].strip())
+        elif stripped:
+            current_section = None
+    if current is not None:
+        capabilities.append(current)
+    return mode, capabilities
+
+
+def infer_story_coverage(
+    story_title: str,
+    story_scope: str,
+    story_acceptance: list[str],
+    story_test_expectations: list[str],
+    capabilities: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    text = " ".join([story_title, story_scope, *story_acceptance, *story_test_expectations]).lower()
+    covered: list[dict[str, object]] = []
+    deferred: list[dict[str, object]] = []
+    for capability in capabilities:
+        name = str(capability["name"])
+        status = str(capability["status"])
+        prompts = capability["story_prompts"]  # type: ignore[assignment]
+        capability_text = " ".join([name, str(capability.get("why", "")), str(capability.get("why_now", "")), *prompts]).lower()
+        name_tokens = re.findall(r"[a-z0-9]+", name.lower())
+        prompt_hits = sum(1 for token in re.findall(r"[a-z0-9]+", capability_text) if len(token) > 4 and token in text)
+        title_hits = sum(1 for token in name_tokens if token in text)
+        if title_hits > 0 or prompt_hits >= 2:
+            covered.append(capability)
+        elif status in {"required", "recommended"}:
+            deferred.append(capability)
+    return covered, deferred
+
+
 def ensure_change(root: Path, change_slug: str, description: str) -> Path:
     change_dir = root / "openspec" / "changes" / change_slug
     if change_dir.exists():
@@ -122,6 +184,14 @@ def main() -> int:
     story_test_expectations = section_bullets(enrichment_sections, "Test Expectations")
     story_risks = section_bullets(enrichment_sections, "Risks")
     workflow_spec = read_text(story_spec_path).strip()
+    capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
+    covered_capabilities, deferred_capabilities = infer_story_coverage(
+        story_title,
+        story_scope,
+        story_acceptance,
+        story_test_expectations,
+        capability_inventory,
+    )
 
     change_dir = ensure_change(root, change_slug, f"{active_story}: {story_title}")
     specs_dir = change_dir / "specs" / capability_slug
@@ -147,6 +217,21 @@ def main() -> int:
     ]
     if story_scope:
         proposal_lines.append(f"- Carry the approved story scope into OpenSpec: {story_scope}")
+    if covered_capabilities:
+        proposal_lines.extend(
+            [
+                f"- Keep this story aligned to workflow mode `{capability_mode}`.",
+                "- Treat the following capability categories as intentionally covered by this story:",
+                *[f"  - {capability['name']}" for capability in covered_capabilities],
+            ]
+        )
+    if deferred_capabilities:
+        proposal_lines.extend(
+            [
+                "- Keep these remaining capability categories visible as deferred follow-up coverage:",
+                *[f"  - {capability['name']} [{capability['status']}]" for capability in deferred_capabilities[:6]],
+            ]
+        )
     proposal_lines.extend(
         [
             "",
@@ -163,9 +248,13 @@ def main() -> int:
             f"- OpenSpec change: `openspec/changes/{change_slug}`",
             f"- Workflow story context: `{active_story}`",
             f"- Affects the sample test suite for `{story_title}`.",
+            f"- Workflow mode: `{capability_mode}`",
             "",
             "<!-- Migrated workflow story context -->",
             story_enrichment or story_block,
+            "",
+            "<!-- Capability inventory context -->",
+            read_text(workflow_dir / "capabilities.md").strip(),
             "",
         ]
     )
@@ -182,6 +271,24 @@ def main() -> int:
         f"- **THEN** the project reflects this behavior: {story_scope or story_desc}",
         "",
     ]
+    if covered_capabilities:
+        spec_lines.extend(
+            [
+                "#### Scenario: Story capability coverage is explicit",
+                "- **WHEN** the OpenSpec change is reviewed",
+                f"- **THEN** it is clear that this story covers: {', '.join(str(cap['name']) for cap in covered_capabilities)}",
+                "",
+            ]
+        )
+    if deferred_capabilities:
+        spec_lines.extend(
+            [
+                "#### Scenario: Deferred capability coverage remains visible",
+                "- **WHEN** the story is accepted as a partial slice",
+                f"- **THEN** the still-deferred capability categories remain explicit: {', '.join(str(cap['name']) for cap in deferred_capabilities[:6])}",
+                "",
+            ]
+        )
     for criterion in story_acceptance[:6]:
         scenario_title = criterion[:80]
         spec_lines.extend(
@@ -207,8 +314,16 @@ def main() -> int:
     for bullet in story_test_expectations:
         task_lines.append(f"- [ ] 1.{index} {bullet}")
         index += 1
+    for capability in covered_capabilities[:4]:
+        task_lines.append(f"- [ ] 1.{index} Make the `{capability['name']}` capability explicit in this story's implementation and documentation.")
+        index += 1
     if story_scope:
         task_lines.append(f"- [ ] 1.{index} Implement the approved story scope: {story_scope}")
+        index += 1
+    if deferred_capabilities:
+        task_lines.append(
+            f"- [ ] 1.{index} Leave clear follow-up context for deferred capabilities: {', '.join(str(cap['name']) for cap in deferred_capabilities[:4])}."
+        )
         index += 1
     for risk in story_risks[:2]:
         task_lines.append(f"- [ ] 1.{index} Keep the slice small enough to avoid this risk: {risk}")
