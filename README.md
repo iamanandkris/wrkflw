@@ -156,6 +156,33 @@ The main use of `capabilities.md` is to improve early planning:
 - use it to decide what is intentionally deferred
 - use it to avoid stopping after the first few obvious examples
 
+`wrkflw` now uses this file directly when the workflow enters `story-slicing`:
+
+- it regenerates `.workflow/<slug>/stories.md`
+- it groups capabilities differently depending on workflow mode
+- it keeps story names and dependencies closer to the intended capability coverage
+
+That means the capability inventory is no longer just review guidance. It is the actual seed for early story generation.
+
+Example outcomes:
+
+- `tutorial-sample`
+  - tends to produce narrower learning-path stories such as:
+    - core contract usage
+    - field validation
+    - visibility / field semantics
+    - nested structures
+    - developer guidance
+- `feature-harness`
+  - tends to produce broader grouped slices such as:
+    - core contract surface
+    - validation and sanitization coverage
+    - update and schema flows
+    - runtime integration
+    - developer guidance
+
+If the generated story slices are still too broad or too thin, review and rework `capabilities.md` at the `capability-review` gate before accepting the story plan.
+
 ### Gate configuration
 
 Each workflow has a gate config file:
@@ -200,7 +227,7 @@ With that configuration, entering `story-enrichment` or `spec-authoring` will no
 - `epic-shaping`
   - review the business problem, goal, non-goals, and constraints
 - `story-slicing`
-  - review whether the work is split into small, independently mergeable stories
+  - review whether the capability-driven story plan is split into small, independently mergeable stories
 - `story-enrichment`
   - review the active story’s scope, acceptance criteria, test expectations, and risks
 - `spec-authoring`
@@ -225,6 +252,9 @@ wrkflw:approve "This slice is local-only progress and the acceptance bar is loca
 Approval does two things:
 - records why the stage was accepted
 - advances the workflow to the next stage
+
+At some stages it also triggers artifact generation. The most important example is:
+- approving into `story-slicing` regenerates `stories.md` from `capabilities.md`
 
 ### What `wrkflw:reject` means
 

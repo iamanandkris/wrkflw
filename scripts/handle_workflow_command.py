@@ -188,6 +188,19 @@ def maybe_generate_implementation_plan(root: Path, workflow_slug: str) -> None:
     )
 
 
+def maybe_generate_story_slices(root: Path, workflow_slug: str) -> None:
+    story_script = Path(__file__).with_name("generate_story_slices.py")
+    if not story_script.exists():
+        return
+    run(
+        ["python3", str(story_script), "--slug", workflow_slug, "--root", str(root)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def maybe_seed_from_design(root: Path, workflow_slug: str, design_file: str | None = None) -> None:
     seed_script = Path(__file__).with_name("seed_workflow_from_design.py")
     if not seed_script.exists():
@@ -245,6 +258,8 @@ def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
 
 
 def apply_stage_entry_effects(stage: str, root: Path, workflow_slug: str) -> None:
+    if stage == "story-slicing":
+        maybe_generate_story_slices(root, workflow_slug)
     if stage == "spec-authoring":
         maybe_bridge_to_openspec(root, workflow_slug)
     if stage == "release-planning":
