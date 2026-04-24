@@ -43,6 +43,25 @@ def parse_kv_list(path: Path) -> dict[str, str]:
     return values
 
 
+def parse_history(path: Path) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    if not path.exists():
+        return events
+    current: dict[str, str] | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## Event "):
+            if current is not None:
+                events.append(current)
+            current = {}
+        elif current is not None and line.startswith("- "):
+            key, _, value = line[2:].partition(":")
+            current[key.strip()] = value.strip()
+    if current is not None:
+        events.append(current)
+    return events
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
@@ -54,6 +73,15 @@ def parse_gate_settings(path: Path) -> dict[str, bool]:
         value = raw.get(f"{stage}.autoApprove", "false").strip().lower()
         settings[stage] = value in {"true", "1", "yes", "on"}
     return settings
+
+
+def parse_diagram_config(path: Path) -> dict[str, str]:
+    raw = parse_kv_list(path)
+    return {
+        "flow.completedStoriesView": raw.get("flow.completedStoriesView", "expanded").strip() or "expanded",
+        "flow.showStoryProgressHistory": raw.get("flow.showStoryProgressHistory", "true").strip() or "true",
+        "work.showStoryProgressHistory": raw.get("work.showStoryProgressHistory", "true").strip() or "true",
+    }
 
 
 def workflow_contract(path: Path) -> dict[str, str]:
@@ -132,6 +160,24 @@ def extract_epic_sections(epic_text: str) -> dict[str, str]:
     return sections
 
 
+def story_file_progress(wf: Path, stories: list[dict[str, str]], state: dict[str, str]) -> dict[str, list[str]]:
+    progress: dict[str, list[str]] = {}
+    done_state = (state.get("Current stage", "") == "done")
+    active_items = {item.strip() for item in state.get("Active items", "").split(",") if item.strip()}
+    for story in stories:
+        match = re.search(r"(\d+)", story["name"])
+        if not match:
+            continue
+        number = match.group(1)
+        story_file = wf / f"story-{number}.md"
+        if story_file.exists():
+            trail = ["story-enrichment"]
+            if done_state and not active_items:
+                trail.extend(["spec-authoring", "implementation-planning", "implementation", "review", "release-planning", "done"])
+            progress[story["name"]] = trail
+    return progress
+
+
 def parse_task_progress(text: str) -> tuple[list[str], list[str]]:
     complete: list[str] = []
     pending: list[str] = []
@@ -191,7 +237,70 @@ def current_stage_color(stage: str, current: str, state: dict[str, str]) -> str:
     return stage_color(stage, current)
 
 
-def story_status(story_name: str, state: dict[str, str], current_stage: str) -> str:
+def story_progress_from_history(
+    stories: list[dict[str, str]],
+    events: list[dict[str, str]],
+    wf: Path,
+    state: dict[str, str],
+) -> dict[str, list[str]]:
+    story_names = {story["name"] for story in stories}
+    progress: dict[str, list[str]] = {name: [] for name in story_names}
+
+    def add_stage(name: str, stage: str) -> None:
+        if name not in progress or not stage or stage == "-":
+            return
+        if stage not in progress[name]:
+            progress[name].append(stage)
+
+    for event in events:
+        focus_items = [item.strip() for item in event.get("Focus items", "").split(",") if item.strip()]
+        to_stage = event.get("To stage", "").strip()
+        from_stage = event.get("From stage", "").strip()
+        for item in focus_items:
+            if item in story_names:
+                add_stage(item, from_stage)
+                add_stage(item, to_stage)
+
+    fallback = story_file_progress(wf, stories, state)
+    for name, trail in fallback.items():
+        for stage in trail:
+            add_stage(name, stage)
+
+    if state.get("Current stage", "") == "done" and not {item.strip() for item in state.get("Active items", "").split(",") if item.strip()}:
+        default_trail = [
+            "story-enrichment",
+            "spec-authoring",
+            "implementation-planning",
+            "implementation",
+            "review",
+            "release-planning",
+            "done",
+        ]
+        for story in stories:
+            if not progress.get(story["name"]):
+                progress[story["name"]] = list(default_trail)
+    return progress
+
+
+def story_touch_order(events: list[dict[str, str]], stories: list[dict[str, str]]) -> list[str]:
+    story_names = {story["name"] for story in stories}
+    order: list[str] = []
+    seen: set[str] = set()
+    for event in events:
+        for item in [value.strip() for value in event.get("Focus items", "").split(",") if value.strip()]:
+            if item in story_names and item not in seen:
+                seen.add(item)
+                order.append(item)
+    return order
+
+
+def story_status(
+    story_name: str,
+    state: dict[str, str],
+    current_stage: str,
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+) -> str:
     active = {item.strip() for item in state.get("Active items", "").split(",") if item.strip()}
     deferred = {item.strip() for item in state.get("Deferred items", "").split(",") if item.strip()}
     if story_name in deferred:
@@ -202,6 +311,18 @@ def story_status(story_name: str, state: dict[str, str], current_stage: str) -> 
         if current_stage in {"implementation", "review", "release-planning"}:
             return "in-progress"
         return "active"
+    story_progress = progress.get(story_name, [])
+    completed_markers = {"review", "release-planning", "done"}
+    if story_progress and any(stage in completed_markers for stage in story_progress):
+        return "completed"
+    if current_stage == "done" and not active and story_progress:
+        return "completed"
+    if story_name in touched_order:
+        touch_index = touched_order.index(story_name)
+        if touch_index < len(touched_order) - 1:
+            return "completed"
+        if story_progress:
+            return "in-progress"
     active_story_num = None
     active_text = next(iter(active), "")
     match = re.search(r"(\d+)", active_text)
@@ -270,11 +391,16 @@ def stage_detail(stage: str, state: dict[str, str], links: dict[str, str], stori
     return "complete"
 
 
-def story_summary_lines(stories: list[dict[str, str]], state: dict[str, str]) -> list[str]:
+def story_summary_lines(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+) -> list[str]:
     current_stage = state.get("Current stage", "discuss")
     lines: list[str] = []
     for story in stories[:8]:
-        status = story_status(story["name"], state, current_stage)
+        status = story_status(story["name"], state, current_stage, progress, touched_order)
         dep = f" -> {story['depends_on']}" if story["depends_on"] else ""
         lines.append(f"{story['name']} [{status}]{dep}")
     return lines or ["-"]
@@ -289,17 +415,42 @@ def task_summary_lines(completed: list[str], pending: list[str]) -> list[str]:
     return lines or ["-"]
 
 
-def completed_story_entries(stories: list[dict[str, str]], state: dict[str, str]) -> list[dict[str, str]]:
+def completed_story_entries(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+) -> list[dict[str, str]]:
     current_stage = state.get("Current stage", "discuss")
-    return [story for story in stories if story_status(story["name"], state, current_stage) == "completed"]
+    return [story for story in stories if story_status(story["name"], state, current_stage, progress, touched_order) == "completed"]
 
 
-def completed_story_summary_lines(stories: list[dict[str, str]], state: dict[str, str]) -> list[str]:
+def compact_story_progress_line(story: dict[str, str]) -> list[str]:
+    summary = (story.get("body") or "completed").splitlines()[0].strip()
+    return [f"{story['name']}: {story['title']}", f"  {summary}"]
+
+
+def progress_chain(stages: list[str]) -> str:
+    ordered = [stage for stage in STAGES if stage in stages and stage not in {"discuss", "capability-review", "epic-shaping", "story-slicing"}]
+    return " -> ".join(ordered) if ordered else "-"
+
+
+def completed_story_summary_lines(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+    view: str,
+) -> list[str]:
     lines: list[str] = []
-    for story in completed_story_entries(stories, state)[:6]:
-        summary = (story.get("body") or "completed").splitlines()[0].strip()
-        lines.append(f"{story['name']}: {story['title']}")
-        lines.append(f"  {summary}")
+    for story in completed_story_entries(stories, state, progress, touched_order)[:8]:
+        if view == "compact":
+            lines.extend(compact_story_progress_line(story))
+        else:
+            lines.append(f"{story['name']}: {story['title']}")
+            lines.append(f"  trail: {progress_chain(progress.get(story['name'], []))}")
+            summary = (story.get("body") or "completed").splitlines()[0].strip()
+            lines.append(f"  {summary}")
     return lines or ["-"]
 
 
@@ -316,6 +467,10 @@ def write_flow_diagram(
     gates = parse_gate_settings(wf / "gates.md")
     contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
+    config = parse_diagram_config(wf / "diagram-config.md")
+    events = parse_history(wf / "history.md")
+    progress = story_progress_from_history(stories, events, wf, state)
+    touched_order = story_touch_order(events, stories)
     epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     epic_problem = epic_sections.get("Problem", "-").splitlines()[0] if epic_sections.get("Problem") else "-"
     epic_goal = epic_sections.get("Goal", "-").splitlines()[0] if epic_sections.get("Goal") else "-"
@@ -365,7 +520,7 @@ def write_flow_diagram(
             f"Workflow mode: {mode}",
             "end note",
             "note right of story_slicing",
-            *story_summary_lines(stories, state),
+            *story_summary_lines(stories, state, progress, touched_order),
             "end note",
             "note right of implementation",
             f"Active: {state.get('Active items', '-') or '-'}",
@@ -374,7 +529,7 @@ def write_flow_diagram(
             "end note",
             "note left of story_slicing",
             "Completed story context:",
-            *completed_story_summary_lines(stories, state),
+            *completed_story_summary_lines(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
             "end note",
             "@enduml",
             "",
@@ -388,6 +543,10 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     gates = parse_gate_settings(wf / "gates.md")
     contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
+    config = parse_diagram_config(wf / "diagram-config.md")
+    events = parse_history(wf / "history.md")
+    progress = story_progress_from_history(stories, events, wf, state)
+    touched_order = story_touch_order(events, stories)
     epic = read_text(wf / "epic.md")
     epic_goal = ""
     for line in epic.splitlines():
@@ -442,7 +601,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     ]
 
     for story in stories:
-        status = story_status(story["name"], state, state.get("Current stage", "discuss"))
+        status = story_status(story["name"], state, state.get("Current stage", "discuss"), progress, touched_order)
         color = story_color(status)
         story_alias = alias(story["name"])
         body = story["body"] or "-"
@@ -456,7 +615,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
             for dep in [item.strip() for item in story["depends_on"].split(",") if item.strip()]:
                 lines.append(f"{alias(dep)} --> {story_alias}")
 
-    completed_stories = completed_story_entries(stories, state)
+    completed_stories = completed_story_entries(stories, state, progress, touched_order)
     if completed_stories:
         lines.extend(
             [
@@ -470,6 +629,14 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
             body = story["body"] or "completed"
             lines.append(f'  rectangle "{puml_text(story["name"])}\\nCompleted\\n{puml_text(body)}" as {done_alias} #90be6d')
             lines.append(f"  {story_alias} --> {done_alias}")
+        lines.append("}")
+
+    if config.get("work.showStoryProgressHistory", "true").lower() in {"true", "1", "yes", "on"} and stories:
+        lines.extend(["", 'package "Story Progress History" #white {'])
+        for story in stories[:8]:
+            trail = progress_chain(progress.get(story["name"], []))
+            status = story_status(story["name"], state, state.get("Current stage", "discuss"), progress, touched_order)
+            lines.append(f'  rectangle "{puml_text(story["name"])}\\n[{status}]\\ntrail: {puml_text(trail)}" as {alias(story["name"] + "_trail")} {story_color(status)}')
         lines.append("}")
 
     if active_story:

@@ -40,6 +40,22 @@ def main() -> int:
         "# Decisions\n\n| Date | Decision | Reason |\n|---|---|---|\n",
     )
     write_if_missing(
+        wf / "history.md",
+        "# History\n\n"
+        "## Event 001\n"
+        "- Command: init\n"
+        "- From stage: -\n"
+        "- To stage: discuss\n"
+        "- Gate: pending\n"
+        "- Focus items: \n"
+        "- Active items: \n"
+        "- Deferred items: \n"
+        "- Approval note: \n"
+        "- Rejection reason: \n"
+        "- Blocked reason: \n"
+        "- Next action: classify initiative and gather context\n\n",
+    )
+    write_if_missing(
         wf / "links.md",
         "# Links\n\n- Tracker:\n- Design seed:\n- OpenSpec change:\n- PRs:\n- Docs:\n",
     )
@@ -61,6 +77,13 @@ def main() -> int:
         "- OpenSpec initialized: false\n"
         "- OpenSpec waived: false\n"
         "- OpenSpec waiver reason:\n",
+    )
+    write_if_missing(
+        wf / "diagram-config.md",
+        "# Diagram Config\n\n"
+        "- flow.completedStoriesView: expanded\n"
+        "- flow.showStoryProgressHistory: true\n"
+        "- work.showStoryProgressHistory: true\n",
     )
     run(
         [

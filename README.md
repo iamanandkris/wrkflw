@@ -116,12 +116,56 @@ including:
 - `context.md`
 - `capabilities.md`
 - `state.md`
+- `history.md`
 - `links.md`
 - `gates.md`
+- `diagram-config.md`
 - `workflow-contract.md`
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
 - `diagram-work.puml`
+
+### Diagram history and compact vs expanded views
+
+`wrkflw` now keeps a persisted transition history in:
+
+```text
+.workflow/<slug>/history.md
+```
+
+This is used to keep completed stories visible in both diagrams instead of inferring everything only from the current `state.md` snapshot.
+
+Diagram rendering behavior is controlled by:
+
+```text
+.workflow/<slug>/diagram-config.md
+```
+
+Default example:
+
+```text
+# Diagram Config
+
+- flow.completedStoriesView: expanded
+- flow.showStoryProgressHistory: true
+- work.showStoryProgressHistory: true
+```
+
+What these do:
+
+- `flow.completedStoriesView: expanded`
+  - show each completed story with its stage trail, such as `story-enrichment -> spec-authoring -> implementation -> review -> done`
+- `flow.completedStoriesView: compact`
+  - keep completed stories visible, but collapse them to a shorter summary
+- `flow.showStoryProgressHistory: true`
+  - keep completed-story progression visible in `diagram-flow.puml`
+- `work.showStoryProgressHistory: true`
+  - keep story progression visible in `diagram-work.puml`
+
+This is not interactive folding inside PlantUML itself. The intended model is:
+
+- use `expanded` when you want the full story trail
+- switch to `compact` when the completed-history panel becomes too large
 
 ### Capability inventory
 

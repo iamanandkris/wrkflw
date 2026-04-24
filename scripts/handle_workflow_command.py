@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from subprocess import run
 
@@ -113,6 +115,43 @@ def write_state(path: Path, state: dict[str, str]) -> None:
         lines.append(f"- {field}: {state.get(field, '').strip()}")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def history_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "history.md"
+
+
+def append_history_event(
+    root: Path,
+    workflow_slug: str,
+    command: str,
+    before: dict[str, str],
+    after: dict[str, str],
+) -> None:
+    path = history_path(root, workflow_slug)
+    existing = path.read_text(encoding="utf-8") if path.exists() else "# History\n\n"
+    seq = len(re.findall(r"^## Event \d+\b", existing, flags=re.MULTILINE)) + 1
+    before_active = before.get("Active items", "").strip()
+    after_active = after.get("Active items", "").strip()
+    focus = after_active or before_active
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    block = [
+        f"## Event {seq:03d}",
+        f"- Timestamp: {timestamp}",
+        f"- Command: {command}",
+        f"- From stage: {ensure_stage(before.get('Current stage') or 'discuss') if before.get('Current stage') else '-'}",
+        f"- To stage: {ensure_stage(after.get('Current stage') or 'discuss')}",
+        f"- Gate: {after.get('Human gate status', '').strip()}",
+        f"- Focus items: {focus}",
+        f"- Active items: {after_active}",
+        f"- Deferred items: {after.get('Deferred items', '').strip()}",
+        f"- Approval note: {after.get('Approval note', '').strip()}",
+        f"- Rejection reason: {after.get('Rejection reason', '').strip()}",
+        f"- Blocked reason: {after.get('Blocked reason', '').strip()}",
+        f"- Next action: {after.get('Next action', '').strip()}",
+        "",
+    ]
+    path.write_text(existing.rstrip() + "\n\n" + "\n".join(block), encoding="utf-8")
 
 
 def parse_kv_list(path: Path) -> dict[str, str]:
@@ -630,6 +669,7 @@ def main() -> int:
     maybe_seed_from_design(root, args.slug, args.design_file)
     maybe_generate_capability_inventory(root, args.slug)
     refresh_workflow_contract(root, args.slug)
+    before_state = deepcopy(state)
 
     if args.command == "approve":
         state = handle_approve_with_reason(state, args.reason, root, args.slug)
@@ -649,6 +689,7 @@ def main() -> int:
         state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
 
     write_state(state_path, state)
+    append_history_event(root, args.slug, args.command, before_state, state)
     run(
         ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
         cwd=root,
