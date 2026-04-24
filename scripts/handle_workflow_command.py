@@ -292,6 +292,19 @@ def maybe_generate_story_slices(root: Path, workflow_slug: str) -> None:
     )
 
 
+def maybe_generate_story_enrichment(root: Path, workflow_slug: str) -> None:
+    enrichment_script = Path(__file__).with_name("generate_story_enrichment.py")
+    if not enrichment_script.exists():
+        return
+    run(
+        ["python3", str(enrichment_script), "--slug", workflow_slug, "--root", str(root)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def maybe_seed_from_design(root: Path, workflow_slug: str, design_file: str | None = None) -> None:
     seed_script = Path(__file__).with_name("seed_workflow_from_design.py")
     if not seed_script.exists():
@@ -351,6 +364,8 @@ def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
 def apply_stage_entry_effects(stage: str, root: Path, workflow_slug: str) -> None:
     if stage == "story-slicing":
         maybe_generate_story_slices(root, workflow_slug)
+    if stage == "story-enrichment":
+        maybe_generate_story_enrichment(root, workflow_slug)
     if stage == "spec-authoring":
         maybe_bridge_to_openspec(root, workflow_slug)
     if stage == "release-planning":
@@ -526,6 +541,8 @@ def handle_refine(
     state["Next action"] = f"refine {current}: {reason}".strip()
     if current == "implementation-planning" and root is not None and workflow_slug is not None:
         maybe_generate_implementation_plan(root, workflow_slug)
+    if current == "story-enrichment" and root is not None and workflow_slug is not None:
+        maybe_generate_story_enrichment(root, workflow_slug)
     return state
 
 
