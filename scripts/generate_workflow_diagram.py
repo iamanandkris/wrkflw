@@ -293,9 +293,11 @@ def story_progress_from_history(
         focus_items = [item.strip() for item in event.get("Focus items", "").split(",") if item.strip()]
         to_stage = event.get("To stage", "").strip()
         from_stage = event.get("From stage", "").strip()
+        command = event.get("Command", "").strip()
         for item in focus_items:
             if item in story_names:
-                add_stage(item, from_stage)
+                if not (command == "proceed-only" and from_stage == "done"):
+                    add_stage(item, from_stage)
                 add_stage(item, to_stage)
 
     fallback = story_file_progress(wf, stories, state)
@@ -443,6 +445,33 @@ def story_summary_lines(
     return lines or ["-"]
 
 
+def story_execution_detail_lines(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+    view: str,
+) -> list[str]:
+    current_stage = state.get("Current stage", "discuss")
+    if not stories:
+        return ["-"]
+
+    lines: list[str] = []
+    for index, story in enumerate(stories[:12], start=1):
+        status = story_status(story["name"], state, current_stage, progress, touched_order)
+        trail = display_progress_chain(progress.get(story["name"], []), status)
+        depends = story.get("depends_on", "").strip() or "-"
+        body = story.get("body", "").strip() or "-"
+        lines.append(f"{story['name']} [{status}]: {story['title']}")
+        lines.append(f"  depends: {depends}")
+        lines.append(f"  trail: {trail}")
+        if view != "compact":
+            lines.append(f"  {body}")
+        if index < min(len(stories), 12):
+            lines.append("---")
+    return lines
+
+
 def task_summary_lines(completed: list[str], pending: list[str]) -> list[str]:
     lines: list[str] = []
     for task in completed[:4]:
@@ -472,6 +501,13 @@ def progress_chain(stages: list[str]) -> str:
     return " -> ".join(ordered) if ordered else "-"
 
 
+def display_progress_chain(stages: list[str], status: str) -> str:
+    filtered = list(stages)
+    if status != "completed":
+        filtered = [stage for stage in filtered if stage not in {"done", "release-planning", "review"}]
+    return progress_chain(filtered)
+
+
 def completed_story_summary_lines(
     stories: list[dict[str, str]],
     state: dict[str, str],
@@ -489,6 +525,95 @@ def completed_story_summary_lines(
             summary = (story.get("body") or "completed").splitlines()[0].strip()
             lines.append(f"  {summary}")
     return lines or ["-"]
+
+
+def completed_story_flow_notes(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+    view: str,
+) -> list[str]:
+    completed = completed_story_entries(stories, state, progress, touched_order)
+    if not completed:
+        return [
+            'note "Completed story context:\\n-" as completed_story_context_empty',
+            "completed_story_context_empty .. story_slicing",
+        ]
+
+    lines: list[str] = []
+    for index, story in enumerate(completed[:12], start=1):
+        note_alias = f"completed_story_context_{index}"
+        body = story.get("body", "").strip() or "-"
+        trail = progress_chain(progress.get(story["name"], []))
+        if view == "compact":
+            note_lines = [
+                f"Completed {story['name']}",
+                story["title"],
+                f"trail: {trail}",
+            ]
+        else:
+            note_lines = [
+                f"Completed {story['name']}",
+                story["title"],
+                f"trail: {trail}",
+                body,
+            ]
+        note_text = puml_text("\n".join(note_lines))
+        lines.append(f'note "{note_text}" as {note_alias}')
+        lines.append(f"{note_alias} .. story_slicing")
+    return lines
+
+
+def story_flow_notes(
+    stories: list[dict[str, str]],
+    state: dict[str, str],
+    progress: dict[str, list[str]],
+    touched_order: list[str],
+    view: str,
+) -> list[str]:
+    current_stage = state.get("Current stage", "discuss")
+    lines: list[str] = []
+    if not stories:
+        return [
+            'state "Story Execution Context" as story_execution_context {',
+            '  state "Story execution context\\n-" as story_execution_context_empty #d9d9d9',
+            "}",
+            "story_slicing --> story_execution_context",
+        ]
+
+    lines.append('state "Story Execution Context" as story_execution_context {')
+    previous_alias: str | None = None
+    for index, story in enumerate(stories[:12], start=1):
+        node_alias = f"story_execution_context_{index}"
+        status = story_status(story["name"], state, current_stage, progress, touched_order)
+        body = story.get("body", "").strip() or "-"
+        trail = display_progress_chain(progress.get(story["name"], []), status)
+        depends = story.get("depends_on", "").strip() or "-"
+        header = f"{story['name']} [{status}]"
+        if view == "compact":
+            note_lines = [
+                header,
+                story["title"],
+                f"depends: {depends}",
+                f"trail: {trail}",
+            ]
+        else:
+            note_lines = [
+                header,
+                story["title"],
+                f"depends: {depends}",
+                f"trail: {trail}",
+                body,
+            ]
+        note_text = puml_text("\n".join(note_lines))
+        lines.append(f'  state "{note_text}" as {node_alias} {story_color(status)}')
+        if previous_alias is not None:
+            lines.append(f"  {previous_alias} --> {node_alias}")
+        previous_alias = node_alias
+    lines.append("}")
+    lines.append("story_slicing --> story_execution_context")
+    return lines
 
 
 def write_flow_diagram(
@@ -581,10 +706,7 @@ def write_flow_diagram(
             f"OpenSpec: {current_openspec}",
             *active_task_lines,
             "end note",
-            "note left of story_slicing",
-            "Completed story context:",
-            *completed_story_summary_lines(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
-            "end note",
+            *story_flow_notes(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
             "@enduml",
             "",
         ]
@@ -697,8 +819,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     if config.get("work.showStoryProgressHistory", "true").lower() in {"true", "1", "yes", "on"} and stories:
         lines.extend(["", 'package "Story Progress History" #white {'])
         for story in stories[:8]:
-            trail = progress_chain(progress.get(story["name"], []))
             status = story_status(story["name"], state, state.get("Current stage", "discuss"), progress, touched_order)
+            trail = display_progress_chain(progress.get(story["name"], []), status)
             lines.append(f'  rectangle "{puml_text(story["name"])}\\n[{status}]\\ntrail: {puml_text(trail)}" as {alias(story["name"] + "_trail")} {story_color(status)}')
         lines.append("}")
 
