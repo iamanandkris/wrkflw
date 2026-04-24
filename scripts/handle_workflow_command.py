@@ -29,6 +29,8 @@ GATED_STAGES = {
     "release-planning",
 }
 
+GATE_FIELDS = [f"{stage}.autoApprove" for stage in STAGE_ORDER if stage in GATED_STAGES]
+
 APPROVAL_NEXT_STAGE = {
     "discuss": "epic-shaping",
     "epic-shaping": "story-slicing",
@@ -122,6 +124,25 @@ def ensure_stage(stage: str) -> str:
     return stage if stage in STAGE_ORDER else "discuss"
 
 
+def parse_gate_settings(path: Path) -> dict[str, bool]:
+    raw = parse_kv_list(path)
+    settings: dict[str, bool] = {}
+    for stage in GATED_STAGES:
+        value = raw.get(f"{stage}.autoApprove", "false").strip().lower()
+        settings[stage] = value in {"true", "1", "yes", "on"}
+    return settings
+
+
+def gate_settings_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "gates.md"
+
+
+def auto_approve_enabled(root: Path, workflow_slug: str, stage: str) -> bool:
+    if stage not in GATED_STAGES:
+        return False
+    return parse_gate_settings(gate_settings_path(root, workflow_slug)).get(stage, False)
+
+
 def maybe_bridge_to_openspec(root: Path, workflow_slug: str) -> None:
     openspec_dir = root / "openspec"
     bridge_script = Path(__file__).with_name("bridge_workflow_to_openspec.py")
@@ -205,6 +226,54 @@ def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
         write_kv_list(links_path, "Links", ["Tracker", "Design seed", "OpenSpec change", "PRs", "Docs"], links)
 
 
+def apply_stage_entry_effects(stage: str, root: Path, workflow_slug: str) -> None:
+    if stage == "spec-authoring":
+        maybe_bridge_to_openspec(root, workflow_slug)
+    if stage == "release-planning":
+        maybe_generate_release_plan(root, workflow_slug)
+    if stage == "done":
+        maybe_archive_openspec(root, workflow_slug)
+
+
+def enter_stage(
+    state: dict[str, str],
+    stage: str,
+    root: Path | None = None,
+    workflow_slug: str | None = None,
+) -> dict[str, str]:
+    stage = ensure_stage(stage)
+    state["Current stage"] = stage
+    state["Human gate status"] = "pending" if stage in GATED_STAGES else "approved"
+    state["Next action"] = NEXT_ACTION.get(stage, "")
+    if root is not None and workflow_slug is not None:
+        apply_stage_entry_effects(stage, root, workflow_slug)
+    return state
+
+
+def auto_progress_gates(
+    state: dict[str, str],
+    root: Path | None = None,
+    workflow_slug: str | None = None,
+) -> dict[str, str]:
+    if root is None or workflow_slug is None:
+        return state
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    auto_notes: list[str] = []
+    while current in GATED_STAGES and auto_approve_enabled(root, workflow_slug, current):
+        auto_notes.append(current)
+        state["Human gate status"] = "approved"
+        nxt = APPROVAL_NEXT_STAGE.get(current, current)
+        if nxt == current:
+            break
+        enter_stage(state, nxt, root, workflow_slug)
+        current = ensure_stage(state.get("Current stage") or "discuss")
+    if auto_notes:
+        note = "auto-approved gate(s): " + ", ".join(auto_notes)
+        existing = state.get("Approval note", "").strip()
+        state["Approval note"] = f"{existing} | {note}" if existing else note
+    return state
+
+
 def parse_items(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
@@ -282,21 +351,13 @@ def handle_approve_with_reason(
 ) -> dict[str, str]:
     current = ensure_stage(state.get("Current stage") or "discuss")
     nxt = APPROVAL_NEXT_STAGE.get(current, current)
-    state["Current stage"] = nxt
-    state["Human gate status"] = "pending" if nxt in GATED_STAGES else "approved"
     state["Rework target"] = ""
     state["Rejection reason"] = ""
     state["Approval note"] = (reason or "").strip()
     state["Item note"] = ""
     state["Challenge note"] = ""
-    state["Next action"] = NEXT_ACTION.get(nxt, "")
-    if nxt == "spec-authoring" and root is not None and workflow_slug is not None:
-        maybe_bridge_to_openspec(root, workflow_slug)
-    if nxt == "release-planning" and root is not None and workflow_slug is not None:
-        maybe_generate_release_plan(root, workflow_slug)
-    if nxt == "done" and root is not None and workflow_slug is not None:
-        maybe_archive_openspec(root, workflow_slug)
-    return state
+    enter_stage(state, nxt, root, workflow_slug)
+    return auto_progress_gates(state, root, workflow_slug)
 
 
 def handle_reject(state: dict[str, str], reason: str) -> dict[str, str]:
@@ -375,12 +436,11 @@ def handle_proceed_only(state: dict[str, str], items: str, reason: str | None, r
         state["Challenge note"] = ""
         state["Item note"] = f"proceed only with: {', '.join(selected)}" + (f" | {reason}" if reason else "")
         if current == "done":
-            state["Current stage"] = "story-enrichment"
-            state["Human gate status"] = "pending"
             state["Approval note"] = ""
             state["Rework target"] = ""
             state["Rejection reason"] = ""
-            state["Next action"] = NEXT_ACTION["story-enrichment"]
+            enter_stage(state, "story-enrichment", root, slug)
+            auto_progress_gates(state, root, slug)
         else:
             state["Next action"] = f"proceed only with {', '.join(selected)}" + (f" because {reason}" if reason else "")
     return state
@@ -413,13 +473,19 @@ def handle_defer(state: dict[str, str], items: str, reason: str | None, root: Pa
     return state
 
 
-def handle_next(state: dict[str, str]) -> dict[str, str]:
+def handle_next(
+    state: dict[str, str],
+    root: Path | None = None,
+    workflow_slug: str | None = None,
+) -> dict[str, str]:
     current = ensure_stage(state.get("Current stage") or "discuss")
     gate_status = (state.get("Human gate status") or "").strip()
     if current in GATED_STAGES and gate_status != "approved":
+        if root is not None and workflow_slug is not None and auto_approve_enabled(root, workflow_slug, current):
+            return handle_approve_with_reason(state, "auto-approved via wrkflw:next", root, workflow_slug)
         state["Next action"] = f"human gate still pending at {current}; approve or reject before continuing"
         return state
-    return handle_approve(state)
+    return handle_approve_with_reason(state, None, root, workflow_slug)
 
 
 def main() -> int:
@@ -458,7 +524,7 @@ def main() -> int:
     elif args.command == "defer":
         state = handle_defer(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
     elif args.command == "next":
-        state = handle_next(state)
+        state = handle_next(state, root, args.slug)
 
     write_state(state_path, state)
     run(

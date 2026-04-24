@@ -49,6 +49,7 @@ with files such as:
 - `state.md`
 - `decisions.md`
 - `links.md`
+- `gates.md`
 - `design-seed.md` when a design file is used
 
 State should capture:
@@ -57,6 +58,11 @@ State should capture:
 - rework target
 - rejection reason
 - next action
+
+Gate configuration should capture, per gated stage:
+- `<stage>.autoApprove: true|false`
+
+If `autoApprove` is `true` for a gate, the workflow should not stop for human approval at that stage and should continue automatically to the next stage.
 
 The workflow should also maintain a live PlantUML diagram at:
 
@@ -83,6 +89,8 @@ python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --co
 Behavior expectations:
 - `wrkflw:discuss` should prefer the design seed as the initial source of truth when one exists, instead of relying only on the user’s one-line summary.
 - `wrkflw:approve --design <path>` or equivalent explicit file-path guidance should reseed the workflow from that design file before continuing, so the workflow can start from analyzed file context instead of only conversational text.
+- `wrkflw` should respect `.workflow/<slug>/gates.md` when deciding whether a human gate must pause the workflow.
+- When a gated stage is entered with `<stage>.autoApprove: true`, `wrkflw` should record that the gate was auto-approved and continue automatically.
 - `wrkflw:approve` should advance the workflow from the current gate to the next stage.
 - `wrkflw:approve "..."` should also record why the stage was accepted.
 - `wrkflw:reject "..."` should record the reason, set the rework target, and move the workflow back to the nearest prior stage that can address the feedback.

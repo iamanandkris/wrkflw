@@ -20,6 +20,14 @@ STAGES = [
 ]
 
 STAGE_ALIASES = {stage: stage.replace("-", "_") for stage in STAGES}
+GATED_STAGES = {
+    "epic-shaping",
+    "story-slicing",
+    "story-enrichment",
+    "spec-authoring",
+    "review",
+    "release-planning",
+}
 
 
 def parse_kv_list(path: Path) -> dict[str, str]:
@@ -35,6 +43,15 @@ def parse_kv_list(path: Path) -> dict[str, str]:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def parse_gate_settings(path: Path) -> dict[str, bool]:
+    raw = parse_kv_list(path)
+    settings: dict[str, bool] = {}
+    for stage in GATED_STAGES:
+        value = raw.get(f"{stage}.autoApprove", "false").strip().lower()
+        settings[stage] = value in {"true", "1", "yes", "on"}
+    return settings
 
 
 def alias(name: str) -> str:
@@ -196,33 +213,33 @@ def active_story_spec_path(wf: Path, state: dict[str, str]) -> Path | None:
     return wf / "specs" / f"story-{match.group(1)}-spec.md"
 
 
-def stage_detail(stage: str, state: dict[str, str], links: dict[str, str], stories: list[dict[str, str]]) -> str:
+def stage_detail(stage: str, state: dict[str, str], links: dict[str, str], stories: list[dict[str, str]], gates: dict[str, bool]) -> str:
     active = state.get("Active items", "") or "-"
     deferred = state.get("Deferred items", "") or "-"
     next_action = state.get("Next action", "") or "-"
-    challenge = state.get("Challenge note", "") or "-"
     current_stage = state.get("Current stage", "")
     openspec = links.get("OpenSpec change", "") or "-"
+    auto = "on" if gates.get(stage, False) else "off"
     if current_stage in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
         openspec = "-"
     if stage == "discuss":
         return f"goal framing\\nactive: {active}"
     if stage == "epic-shaping":
-        return f"epic review\\ngate: {state.get('Human gate status', '-') or '-'}"
+        return f"epic review\\nauto: {auto}"
     if stage == "story-slicing":
-        return f"{len(stories)} stories\\ndeferred: {deferred}"
+        return f"{len(stories)} stories\\nauto: {auto}"
     if stage == "story-enrichment":
-        return f"enriching {active}\\nitem: {state.get('Item note', '-') or '-'}"
+        return f"enriching {active}\\nauto: {auto}"
     if stage == "spec-authoring":
-        return f"OpenSpec\\n{openspec}"
+        return f"OpenSpec\\nauto: {auto}"
     if stage == "implementation-planning":
         return f"plan slice\\nactive: {active}"
     if stage == "implementation":
         return f"build/test\\nactive: {active}"
     if stage == "review":
-        return f"review gate\\nnext: {next_action}"
+        return f"review gate\\nauto: {auto}"
     if stage == "release-planning":
-        return f"release prep\\nactive: {active}"
+        return f"release prep\\nauto: {auto}"
     return "complete"
 
 
@@ -269,6 +286,7 @@ def write_flow_diagram(
     pending_tasks: list[str],
 ) -> None:
     current = state.get("Current stage", "discuss") or "discuss"
+    gates = parse_gate_settings(wf / "gates.md")
     epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     epic_problem = epic_sections.get("Problem", "-").splitlines()[0] if epic_sections.get("Problem") else "-"
     epic_goal = epic_sections.get("Goal", "-").splitlines()[0] if epic_sections.get("Goal") else "-"
@@ -281,7 +299,7 @@ def write_flow_diagram(
         "[*] --> discuss",
     ]
     for stage in STAGES:
-        detail = stage_detail(stage, state, links, stories)
+        detail = stage_detail(stage, state, links, stories, gates)
         lines.append(f'state "{stage}\\n{detail}" as {STAGE_ALIASES[stage]} {stage_color(stage, current)}')
     current_openspec = links.get("OpenSpec change", "") or "-"
     if current in {"discuss", "epic-shaping", "story-slicing", "story-enrichment"}:
@@ -304,6 +322,7 @@ def write_flow_diagram(
             "done --> [*]",
             f"note right of {STAGE_ALIASES[current]}",
             f"Gate: {state.get('Human gate status', '-') or '-'}",
+            f"AutoApprove: {'on' if gates.get(current, False) else 'off'}",
             f"OpenSpec: {current_openspec}",
             f"Next: {state.get('Next action', '-') or '-'}",
             "end note",
@@ -332,6 +351,7 @@ def write_flow_diagram(
 
 def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[str, str]) -> None:
     stories = parse_story_entries(read_text(wf / "stories.md"))
+    gates = parse_gate_settings(wf / "gates.md")
     epic = read_text(wf / "epic.md")
     epic_goal = ""
     for line in epic.splitlines():
@@ -374,6 +394,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Epic goal: {epic_goal or "-"}',
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
+        f'  AutoApprove current gate: {"on" if gates.get(state.get("Current stage", ""), False) else "off"}',
         f'  end note',
         "}",
         "",

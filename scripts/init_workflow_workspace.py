@@ -39,6 +39,16 @@ def main() -> int:
         wf / "links.md",
         "# Links\n\n- Tracker:\n- Design seed:\n- OpenSpec change:\n- PRs:\n- Docs:\n",
     )
+    write_if_missing(
+        wf / "gates.md",
+        "# Gates\n\n"
+        "- epic-shaping.autoApprove: false\n"
+        "- story-slicing.autoApprove: false\n"
+        "- story-enrichment.autoApprove: false\n"
+        "- spec-authoring.autoApprove: false\n"
+        "- review.autoApprove: false\n"
+        "- release-planning.autoApprove: false\n",
+    )
     run(
         [
             "python3",

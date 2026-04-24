@@ -115,9 +115,42 @@ including:
 - `context.md`
 - `state.md`
 - `links.md`
+- `gates.md`
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
 - `diagram-work.puml`
+
+### Gate configuration
+
+Each workflow has a gate config file:
+
+```text
+.workflow/<slug>/gates.md
+```
+
+Default example:
+
+```text
+# Gates
+
+- epic-shaping.autoApprove: false
+- story-slicing.autoApprove: false
+- story-enrichment.autoApprove: false
+- spec-authoring.autoApprove: false
+- review.autoApprove: false
+- release-planning.autoApprove: false
+```
+
+Set a gate to `true` if you want `wrkflw` to skip waiting for manual approval at that stage.
+
+Example:
+
+```text
+- story-enrichment.autoApprove: true
+- spec-authoring.autoApprove: true
+```
+
+With that configuration, entering `story-enrichment` or `spec-authoring` will not pause for human approval. `wrkflw` will record that those gates were auto-approved and continue automatically to the next stage.
 
 ## Workflow Gates And Control Commands
 
