@@ -28,6 +28,10 @@ def main() -> int:
         "# Context\n\n- Problem:\n- Goal:\n- Non-goals:\n- Constraints:\n",
     )
     write_if_missing(
+        wf / "capabilities.md",
+        "# Capability Inventory\n\n## Workflow Mode\n\n- Mode: general-delivery\n- Rationale: No capability inventory has been generated yet.\n",
+    )
+    write_if_missing(
         wf / "state.md",
         "# State\n\n- Current stage:\n- Human gate status:\n- Rework target:\n- Rejection reason:\n- Approval note:\n- Active items:\n- Deferred items:\n- Item note:\n- Challenge note:\n- Next action:\n",
     )
@@ -59,6 +63,10 @@ def main() -> int:
             str(root),
             *(["--design-file", args.design_file] if args.design_file else []),
         ],
+        check=True,
+    )
+    run(
+        ["python3", str(Path(__file__).with_name("generate_capability_inventory.py")), "--slug", args.slug, "--root", str(root)],
         check=True,
     )
     run(

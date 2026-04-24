@@ -113,12 +113,48 @@ The workflow creates artifacts under:
 
 including:
 - `context.md`
+- `capabilities.md`
 - `state.md`
 - `links.md`
 - `gates.md`
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
 - `diagram-work.puml`
+
+### Capability inventory
+
+Each workflow also gets:
+
+```text
+.workflow/<slug>/capabilities.md
+```
+
+This is generated automatically from the available design seed and workflow context. Its purpose is to stop `wrkflw` from converging too early on a thin result.
+
+It captures:
+
+- the inferred workflow mode
+- the capability categories the workflow should consider
+- whether each capability is `required`, `recommended`, or `optional`
+- story prompts that can be turned into future slices
+
+Typical workflow modes:
+
+- `tutorial-sample`
+  - optimize for pedagogy and a clear learning path
+- `feature-harness`
+  - optimize for broader capability coverage and realistic feature comparison
+- `product-service`
+  - optimize for runtime/service behavior and realistic execution paths
+- `general-delivery`
+  - default mode when no stronger signal exists
+
+The main use of `capabilities.md` is to improve early planning:
+
+- review it before story slicing
+- use it to name stories more concretely
+- use it to decide what is intentionally deferred
+- use it to avoid stopping after the first few obvious examples
 
 ### Gate configuration
 

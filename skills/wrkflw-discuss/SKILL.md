@@ -29,12 +29,13 @@ Also treat these as workflow control intents:
 
 1. Classify the request as epic, story, bug, spike, or refactor.
 2. Identify the current stage.
-3. Ask only the minimum relevant questions.
-4. Recommend the next tool and mode.
-5. Stop at human approval gates.
-6. If useful, initialize a local workflow workspace in the current repo.
-7. If a gate is rejected, record the rejection and route work back to the right prior stage.
-8. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
+3. Create or refresh a capability inventory before story slicing so sample and harness work does not converge too early on a thin result.
+4. Ask only the minimum relevant questions.
+5. Recommend the next tool and mode.
+6. Stop at human approval gates.
+7. If useful, initialize a local workflow workspace in the current repo.
+8. If a gate is rejected, record the rejection and route work back to the right prior stage.
+9. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
 
 ## Workspace Convention
 
@@ -46,6 +47,7 @@ Prefer a local workflow folder in the active repo:
 
 with files such as:
 - `context.md`
+- `capabilities.md`
 - `state.md`
 - `decisions.md`
 - `links.md`
@@ -58,6 +60,10 @@ State should capture:
 - rework target
 - rejection reason
 - next action
+
+Capability inventory should capture:
+- the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
+- the capability categories the workflow should consider before writing narrow stories too early
 
 Gate configuration should capture, per gated stage:
 - `<stage>.autoApprove: true|false`
@@ -88,6 +94,7 @@ python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --co
 
 Behavior expectations:
 - `wrkflw:discuss` should prefer the design seed as the initial source of truth when one exists, instead of relying only on the user’s one-line summary.
+- `wrkflw:discuss` should also create or refresh `.workflow/<slug>/capabilities.md` so story slicing starts from capability categories instead of only the first obvious implementation slice.
 - `wrkflw:approve --design <path>` or equivalent explicit file-path guidance should reseed the workflow from that design file before continuing, so the workflow can start from analyzed file context instead of only conversational text.
 - `wrkflw` should respect `.workflow/<slug>/gates.md` when deciding whether a human gate must pause the workflow.
 - When a gated stage is entered with `<stage>.autoApprove: true`, `wrkflw` should record that the gate was auto-approved and continue automatically.

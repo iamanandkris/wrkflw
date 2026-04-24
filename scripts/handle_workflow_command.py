@@ -199,6 +199,19 @@ def maybe_seed_from_design(root: Path, workflow_slug: str, design_file: str | No
     )
 
 
+def maybe_generate_capability_inventory(root: Path, workflow_slug: str) -> None:
+    inventory_script = Path(__file__).with_name("generate_capability_inventory.py")
+    if not inventory_script.exists():
+        return
+    run(
+        ["python3", str(inventory_script), "--slug", workflow_slug, "--root", str(root)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
     links_path = root / ".workflow" / workflow_slug / "links.md"
     links = parse_kv_list(links_path)
@@ -510,6 +523,7 @@ def main() -> int:
         state["Next action"] = NEXT_ACTION["discuss"]
 
     maybe_seed_from_design(root, args.slug, args.design_file)
+    maybe_generate_capability_inventory(root, args.slug)
 
     if args.command == "approve":
         state = handle_approve_with_reason(state, args.reason, root, args.slug)

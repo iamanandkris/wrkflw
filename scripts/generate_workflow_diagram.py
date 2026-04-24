@@ -54,6 +54,13 @@ def parse_gate_settings(path: Path) -> dict[str, bool]:
     return settings
 
 
+def capability_mode(path: Path) -> str:
+    for line in read_text(path).splitlines():
+        if line.startswith("- Mode:"):
+            return line.split(":", 1)[1].strip()
+    return "general-delivery"
+
+
 def alias(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_") or "node"
 
@@ -287,6 +294,7 @@ def write_flow_diagram(
 ) -> None:
     current = state.get("Current stage", "discuss") or "discuss"
     gates = parse_gate_settings(wf / "gates.md")
+    mode = capability_mode(wf / "capabilities.md")
     epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     epic_problem = epic_sections.get("Problem", "-").splitlines()[0] if epic_sections.get("Problem") else "-"
     epic_goal = epic_sections.get("Goal", "-").splitlines()[0] if epic_sections.get("Goal") else "-"
@@ -329,6 +337,7 @@ def write_flow_diagram(
             "note right of epic_shaping",
             f"Epic problem: {epic_problem}",
             f"Epic goal: {epic_goal}",
+            f"Workflow mode: {mode}",
             "end note",
             "note right of story_slicing",
             *story_summary_lines(stories, state),
@@ -352,6 +361,7 @@ def write_flow_diagram(
 def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[str, str]) -> None:
     stories = parse_story_entries(read_text(wf / "stories.md"))
     gates = parse_gate_settings(wf / "gates.md")
+    mode = capability_mode(wf / "capabilities.md")
     epic = read_text(wf / "epic.md")
     epic_goal = ""
     for line in epic.splitlines():
@@ -392,6 +402,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'package "Epic" #white {{',
         f'  note as epic_note',
         f'  Epic goal: {epic_goal or "-"}',
+        f'  Workflow mode: {mode}',
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
         f'  AutoApprove current gate: {"on" if gates.get(state.get("Current stage", ""), False) else "off"}',
