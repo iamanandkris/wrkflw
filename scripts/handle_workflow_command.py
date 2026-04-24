@@ -31,6 +31,8 @@ GATED_STAGES = {
     "release-planning",
 }
 
+BLOCKED_STATES = {"blocked"}
+
 GATE_FIELDS = [f"{stage}.autoApprove" for stage in STAGE_ORDER if stage in GATED_STAGES]
 
 APPROVAL_NEXT_STAGE = {
@@ -73,6 +75,7 @@ NEXT_ACTION = {
 STATE_FIELDS = [
     "Current stage",
     "Human gate status",
+    "Blocked reason",
     "Rework target",
     "Rejection reason",
     "Approval note",
@@ -81,6 +84,13 @@ STATE_FIELDS = [
     "Item note",
     "Challenge note",
     "Next action",
+]
+
+CONTRACT_FIELDS = [
+    "OpenSpec required",
+    "OpenSpec initialized",
+    "OpenSpec waived",
+    "OpenSpec waiver reason",
 ]
 
 
@@ -146,6 +156,48 @@ def auto_approve_enabled(root: Path, workflow_slug: str, stage: str) -> bool:
     if stage not in GATED_STAGES:
         return False
     return parse_gate_settings(gate_settings_path(root, workflow_slug)).get(stage, False)
+
+
+def workflow_contract_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "workflow-contract.md"
+
+
+def detect_openspec_initialized(root: Path) -> bool:
+    return (root / "openspec").exists()
+
+
+def read_workflow_contract(root: Path, workflow_slug: str) -> dict[str, str]:
+    path = workflow_contract_path(root, workflow_slug)
+    values = parse_kv_list(path)
+    normalized = {field: values.get(field, "").strip() for field in CONTRACT_FIELDS}
+    return normalized
+
+
+def write_workflow_contract(root: Path, workflow_slug: str, values: dict[str, str]) -> None:
+    write_kv_list(workflow_contract_path(root, workflow_slug), "Workflow Contract", CONTRACT_FIELDS, values)
+
+
+def refresh_workflow_contract(root: Path, workflow_slug: str) -> dict[str, str]:
+    contract = read_workflow_contract(root, workflow_slug)
+    if not contract["OpenSpec required"]:
+        contract["OpenSpec required"] = "true"
+    contract["OpenSpec initialized"] = "true" if detect_openspec_initialized(root) else "false"
+    if not contract["OpenSpec waived"]:
+        contract["OpenSpec waived"] = "false"
+    write_workflow_contract(root, workflow_slug, contract)
+    return contract
+
+
+def openspec_block_required(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
+    if stage != "spec-authoring":
+        return False, ""
+    contract = refresh_workflow_contract(root, workflow_slug)
+    required = contract.get("OpenSpec required", "true").lower() in {"true", "1", "yes", "on"}
+    initialized = contract.get("OpenSpec initialized", "false").lower() in {"true", "1", "yes", "on"}
+    waived = contract.get("OpenSpec waived", "false").lower() in {"true", "1", "yes", "on"}
+    if required and not initialized and not waived:
+        return True, "OpenSpec is required for this workflow but is not initialized. Initialize OpenSpec or use an explicit override before implementation continues."
+    return False, ""
 
 
 def maybe_bridge_to_openspec(root: Path, workflow_slug: str) -> None:
@@ -276,10 +328,17 @@ def enter_stage(
 ) -> dict[str, str]:
     stage = ensure_stage(stage)
     state["Current stage"] = stage
-    state["Human gate status"] = "pending" if stage in GATED_STAGES else "approved"
-    state["Next action"] = NEXT_ACTION.get(stage, "")
     if root is not None and workflow_slug is not None:
+        blocked, reason = openspec_block_required(root, workflow_slug, stage)
+        if blocked:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = reason
+            state["Next action"] = "initialize OpenSpec or use an explicit override before continuing"
+            return state
         apply_stage_entry_effects(stage, root, workflow_slug)
+    state["Human gate status"] = "pending" if stage in GATED_STAGES else "approved"
+    state["Blocked reason"] = ""
+    state["Next action"] = NEXT_ACTION.get(stage, "")
     return state
 
 
@@ -292,7 +351,7 @@ def auto_progress_gates(
         return state
     current = ensure_stage(state.get("Current stage") or "discuss")
     auto_notes: list[str] = []
-    while current in GATED_STAGES and auto_approve_enabled(root, workflow_slug, current):
+    while current in GATED_STAGES and state.get("Human gate status") not in BLOCKED_STATES and auto_approve_enabled(root, workflow_slug, current):
         auto_notes.append(current)
         state["Human gate status"] = "approved"
         nxt = APPROVAL_NEXT_STAGE.get(current, current)
@@ -387,6 +446,7 @@ def handle_approve_with_reason(
     state["Rework target"] = ""
     state["Rejection reason"] = ""
     state["Approval note"] = (reason or "").strip()
+    state["Blocked reason"] = ""
     state["Item note"] = ""
     state["Challenge note"] = ""
     enter_stage(state, nxt, root, workflow_slug)
@@ -398,9 +458,11 @@ def handle_reject(state: dict[str, str], reason: str) -> dict[str, str]:
     target = REWORK_TARGET.get(current, current)
     state["Current stage"] = target
     state["Human gate status"] = "rejected"
+    state["Blocked reason"] = ""
     state["Rework target"] = target
     state["Rejection reason"] = reason
     state["Approval note"] = ""
+    state["Blocked reason"] = ""
     state["Item note"] = ""
     state["Challenge note"] = ""
     state["Next action"] = f"rework {target} to address rejection: {reason}".strip()
@@ -419,6 +481,7 @@ def handle_refine(
     state["Rework target"] = current
     state["Rejection reason"] = ""
     state["Approval note"] = ""
+    state["Blocked reason"] = ""
     state["Item note"] = ""
     state["Challenge note"] = ""
     state["Next action"] = f"refine {current}: {reason}".strip()
@@ -445,6 +508,7 @@ def handle_rework_item(state: dict[str, str], items: str, reason: str | None) ->
     state["Rework target"] = current
     state["Rejection reason"] = ""
     state["Approval note"] = ""
+    state["Blocked reason"] = ""
     state["Item note"] = f"rework item(s): {items}" + (f" | {reason}" if reason else "")
     state["Challenge note"] = ""
     state["Next action"] = f"rework item(s) in {current}: {items}" + (f" because {reason}" if reason else "")
@@ -459,6 +523,7 @@ def handle_proceed_only(state: dict[str, str], items: str, reason: str | None, r
     missing = missing_dependencies(selected, dependencies, completed)
     state["Current stage"] = current
     state["Human gate status"] = "pending"
+    state["Blocked reason"] = ""
     if missing:
         challenge = challenge_message_for_missing(missing)
         state["Challenge note"] = f"Cannot proceed-only yet: {challenge}"
@@ -493,6 +558,7 @@ def handle_defer(state: dict[str, str], items: str, reason: str | None, root: Pa
     missing = {item: deps for item, deps in missing.items() if deps}
     state["Current stage"] = current
     state["Human gate status"] = "pending"
+    state["Blocked reason"] = ""
     if missing:
         challenge = challenge_message_for_missing(missing)
         state["Challenge note"] = f"Cannot defer yet: active scope depends on deferred item(s): {challenge}"
@@ -513,6 +579,9 @@ def handle_next(
 ) -> dict[str, str]:
     current = ensure_stage(state.get("Current stage") or "discuss")
     gate_status = (state.get("Human gate status") or "").strip()
+    if gate_status in BLOCKED_STATES:
+        state["Next action"] = state.get("Next action") or "resolve the current workflow block before continuing"
+        return state
     if current in GATED_STAGES and gate_status != "approved":
         if root is not None and workflow_slug is not None and auto_approve_enabled(root, workflow_slug, current):
             return handle_approve_with_reason(state, "auto-approved via wrkflw:next", root, workflow_slug)
@@ -521,11 +590,26 @@ def handle_next(
     return handle_approve_with_reason(state, None, root, workflow_slug)
 
 
+def handle_override(state: dict[str, str], reason: str, root: Path, workflow_slug: str) -> dict[str, str]:
+    contract = refresh_workflow_contract(root, workflow_slug)
+    contract["OpenSpec waived"] = "true"
+    contract["OpenSpec waiver reason"] = reason
+    write_workflow_contract(root, workflow_slug, contract)
+
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    state["Blocked reason"] = ""
+    if state.get("Human gate status") == "blocked":
+        state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
+        state["Next action"] = NEXT_ACTION.get(current, "")
+    state["Approval note"] = f"override applied: {reason}"
+    return state
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, rework, refine, rework-item, proceed-only, defer, and next.")
+    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, rework, refine, rework-item, proceed-only, defer, next, and override.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "rework", "refine", "rework-item", "proceed-only", "defer", "next"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -539,11 +623,13 @@ def main() -> int:
     if not state["Current stage"]:
         state["Current stage"] = "discuss"
         state["Human gate status"] = "pending"
+        state["Blocked reason"] = ""
         state["Challenge note"] = ""
         state["Next action"] = NEXT_ACTION["discuss"]
 
     maybe_seed_from_design(root, args.slug, args.design_file)
     maybe_generate_capability_inventory(root, args.slug)
+    refresh_workflow_contract(root, args.slug)
 
     if args.command == "approve":
         state = handle_approve_with_reason(state, args.reason, root, args.slug)
@@ -559,6 +645,8 @@ def main() -> int:
         state = handle_defer(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
     elif args.command == "next":
         state = handle_next(state, root, args.slug)
+    elif args.command == "override":
+        state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
 
     write_state(state_path, state)
     run(

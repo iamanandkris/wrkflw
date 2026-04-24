@@ -54,6 +54,14 @@ def main() -> int:
         "- review.autoApprove: false\n"
         "- release-planning.autoApprove: false\n",
     )
+    write_if_missing(
+        wf / "workflow-contract.md",
+        "# Workflow Contract\n\n"
+        "- OpenSpec required: true\n"
+        "- OpenSpec initialized: false\n"
+        "- OpenSpec waived: false\n"
+        "- OpenSpec waiver reason:\n",
+    )
     run(
         [
             "python3",

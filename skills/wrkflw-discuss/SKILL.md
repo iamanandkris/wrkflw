@@ -22,6 +22,7 @@ Also treat these as workflow control intents:
 - `wrkflw:rework-item "..."`
 - `wrkflw:proceed-only "..."`
 - `wrkflw:defer "..."`
+- `wrkflw:override "..."`
 - `wrkflw:openspec-sync`
 - `wrkflw:next`
 
@@ -52,11 +53,13 @@ with files such as:
 - `decisions.md`
 - `links.md`
 - `gates.md`
+- `workflow-contract.md`
 - `design-seed.md` when a design file is used
 
 State should capture:
 - current stage
 - human gate status
+- blocked reason when a hard workflow precondition is not satisfied
 - rework target
 - rejection reason
 - next action
@@ -70,6 +73,12 @@ Gate configuration should capture, per gated stage:
 - `<stage>.autoApprove: true|false`
 
 If `autoApprove` is `true` for a gate, the workflow should not stop for human approval at that stage and should continue automatically to the next stage.
+
+Workflow contract should capture:
+- `OpenSpec required: true|false`
+- `OpenSpec initialized: true|false`
+- `OpenSpec waived: true|false`
+- `OpenSpec waiver reason: ...`
 
 The workflow should also maintain a live PlantUML diagram at:
 
@@ -98,6 +107,9 @@ Behavior expectations:
 - `wrkflw:discuss` should also create or refresh `.workflow/<slug>/capabilities.md` so story slicing starts from capability categories instead of only the first obvious implementation slice.
 - `wrkflw` should stop at a dedicated capability-review gate after `discuss` so the user can approve, reject, or refine the generated capability inventory before epic shaping continues.
 - entering `story-slicing` should regenerate `.workflow/<slug>/stories.md` from `.workflow/<slug>/capabilities.md` so the story plan reflects the reviewed capability inventory instead of stale generic slices.
+- if `OpenSpec required: true` and the workflow reaches `spec-authoring` without a valid OpenSpec initialization, the workflow must hard-block instead of continuing into implementation.
+- the workflow must not silently downgrade or bypass OpenSpec on its own judgment.
+- the only valid bypass is an explicit user override such as `wrkflw:override "Proceed without OpenSpec for this run"`.
 - `wrkflw:approve --design <path>` or equivalent explicit file-path guidance should reseed the workflow from that design file before continuing, so the workflow can start from analyzed file context instead of only conversational text.
 - `wrkflw` should respect `.workflow/<slug>/gates.md` when deciding whether a human gate must pause the workflow.
 - When a gated stage is entered with `<stage>.autoApprove: true`, `wrkflw` should record that the gate was auto-approved and continue automatically.
@@ -110,6 +122,7 @@ Behavior expectations:
 - `wrkflw:rework-item "..."` should keep the workflow at the current stage, mark the named epic item or story for targeted rework, and update the next action accordingly.
 - `wrkflw:proceed-only "..."` should restrict the active scope to the named epic items or stories and defer everything else for now.
 - `wrkflw:defer "..."` should explicitly exclude or postpone the named epic items or stories without rejecting the entire stage.
+- `wrkflw:override "..."` should be reserved for explicit user waivers of a major workflow requirement such as proceeding without OpenSpec.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
 

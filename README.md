@@ -12,6 +12,7 @@
 - `wrkflw:rework-item`
 - `wrkflw:proceed-only`
 - `wrkflw:defer`
+- `wrkflw:override`
 - `wrkflw:next`
 
 It also supports:
@@ -117,6 +118,7 @@ including:
 - `state.md`
 - `links.md`
 - `gates.md`
+- `workflow-contract.md`
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
 - `diagram-work.puml`
@@ -216,6 +218,40 @@ Example:
 
 With that configuration, entering `story-enrichment` or `spec-authoring` will not pause for human approval. `wrkflw` will record that those gates were auto-approved and continue automatically to the next stage.
 
+### Workflow contract
+
+Each workflow also has:
+
+```text
+.workflow/<slug>/workflow-contract.md
+```
+
+Default example:
+
+```text
+# Workflow Contract
+
+- OpenSpec required: true
+- OpenSpec initialized: false
+- OpenSpec waived: false
+- OpenSpec waiver reason:
+```
+
+This file exists to stop the agent from making major workflow deviations silently.
+
+Hard rule:
+- if `OpenSpec required: true`
+- and the workflow reaches `spec-authoring`
+- and OpenSpec is not initialized
+
+then `wrkflw` must block instead of continuing toward implementation.
+
+The only supported bypass is an explicit user waiver, for example:
+
+```text
+wrkflw:override "Proceed without OpenSpec for this run."
+```
+
 ## Workflow Gates And Control Commands
 
 `wrkflw` is intentionally stage-driven. It stops at human gates instead of pushing through the whole workflow blindly.
@@ -232,6 +268,7 @@ With that configuration, entering `story-enrichment` or `spec-authoring` will no
   - review the active story’s scope, acceptance criteria, test expectations, and risks
 - `spec-authoring`
   - review the proposal, spec, and tasks before implementation
+  - if OpenSpec is required but missing, this stage blocks instead of continuing
 - `review`
   - review the implemented slice and validation outcome
 - `release-planning`
@@ -335,6 +372,23 @@ wrkflw:defer "Story 4" "Documentation can wait until the capability slices are i
 
 `wrkflw` will challenge this command if active scope still depends on the deferred item.
 
+### What `wrkflw:override` means
+
+Use `wrkflw:override` only when you explicitly want to waive a major workflow requirement.
+
+Example:
+
+```text
+wrkflw:override "Proceed without OpenSpec for this run."
+```
+
+This is not a normal convenience command. It exists for cases where:
+- the workflow contract requires OpenSpec
+- OpenSpec is not initialized
+- you intentionally choose to proceed anyway
+
+That decision must come from the user, not from the agent.
+
 ### What `wrkflw:next` means
 
 Use `wrkflw:next` only when you want the workflow to advance automatically from a non-gated stage.
@@ -375,6 +429,10 @@ openspec/changes/<change-slug>/
 ```
 
 On final closeout, it archives the change automatically.
+
+If OpenSpec is required but not initialized, `wrkflw` now hard-blocks at `spec-authoring` until one of these is true:
+- OpenSpec is initialized
+- the user explicitly issues a waiver with `wrkflw:override "..."`
 
 `wrkflw` now also carries capability coverage into the OpenSpec artifacts:
 

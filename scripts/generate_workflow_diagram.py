@@ -56,6 +56,16 @@ def parse_gate_settings(path: Path) -> dict[str, bool]:
     return settings
 
 
+def workflow_contract(path: Path) -> dict[str, str]:
+    raw = parse_kv_list(path)
+    return {
+        "OpenSpec required": raw.get("OpenSpec required", "").strip(),
+        "OpenSpec initialized": raw.get("OpenSpec initialized", "").strip(),
+        "OpenSpec waived": raw.get("OpenSpec waived", "").strip(),
+        "OpenSpec waiver reason": raw.get("OpenSpec waiver reason", "").strip(),
+    }
+
+
 def capability_mode(path: Path) -> str:
     for line in read_text(path).splitlines():
         if line.startswith("- Mode:"):
@@ -173,6 +183,12 @@ def stage_color(stage: str, current: str) -> str:
     if STAGES.index(stage) < STAGES.index(current):
         return "#90be6d"
     return "#d9d9d9"
+
+
+def current_stage_color(stage: str, current: str, state: dict[str, str]) -> str:
+    if stage == current and state.get("Human gate status", "") == "blocked":
+        return "#f9c74f"
+    return stage_color(stage, current)
 
 
 def story_status(story_name: str, state: dict[str, str], current_stage: str) -> str:
@@ -298,6 +314,7 @@ def write_flow_diagram(
 ) -> None:
     current = state.get("Current stage", "discuss") or "discuss"
     gates = parse_gate_settings(wf / "gates.md")
+    contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
     epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     epic_problem = epic_sections.get("Problem", "-").splitlines()[0] if epic_sections.get("Problem") else "-"
@@ -312,7 +329,7 @@ def write_flow_diagram(
     ]
     for stage in STAGES:
         detail = stage_detail(stage, state, links, stories, gates)
-        lines.append(f'state "{stage}\\n{detail}" as {STAGE_ALIASES[stage]} {stage_color(stage, current)}')
+        lines.append(f'state "{stage}\\n{detail}" as {STAGE_ALIASES[stage]} {current_stage_color(stage, current, state)}')
     current_openspec = links.get("OpenSpec change", "") or "-"
     if current in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         current_openspec = "-"
@@ -335,8 +352,11 @@ def write_flow_diagram(
             "done --> [*]",
             f"note right of {STAGE_ALIASES[current]}",
             f"Gate: {state.get('Human gate status', '-') or '-'}",
+            f"Blocked: {state.get('Blocked reason', '-') or '-'}",
             f"AutoApprove: {'on' if gates.get(current, False) else 'off'}",
             f"OpenSpec: {current_openspec}",
+            f"OpenSpec required: {contract.get('OpenSpec required', '-') or '-'}",
+            f"OpenSpec initialized: {contract.get('OpenSpec initialized', '-') or '-'}",
             f"Next: {state.get('Next action', '-') or '-'}",
             "end note",
             "note right of epic_shaping",
@@ -366,6 +386,7 @@ def write_flow_diagram(
 def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[str, str]) -> None:
     stories = parse_story_entries(read_text(wf / "stories.md"))
     gates = parse_gate_settings(wf / "gates.md")
+    contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
     epic = read_text(wf / "epic.md")
     epic_goal = ""
@@ -410,7 +431,10 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Workflow mode: {mode}',
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
+        f'  Blocked: {state.get("Blocked reason", "-") or "-"}',
         f'  AutoApprove current gate: {"on" if gates.get(state.get("Current stage", ""), False) else "off"}',
+        f'  OpenSpec required: {contract.get("OpenSpec required", "-") or "-"}',
+        f'  OpenSpec initialized: {contract.get("OpenSpec initialized", "-") or "-"}',
         f'  end note',
         "}",
         "",
