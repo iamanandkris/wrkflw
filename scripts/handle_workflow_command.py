@@ -496,13 +496,18 @@ def handle_approve_with_reason(
     workflow_slug: str | None = None,
 ) -> dict[str, str]:
     current = ensure_stage(state.get("Current stage") or "discuss")
-    nxt = APPROVAL_NEXT_STAGE.get(current, current)
     state["Rework target"] = ""
     state["Rejection reason"] = ""
     state["Approval note"] = (reason or "").strip()
-    state["Blocked reason"] = ""
     state["Item note"] = ""
     state["Challenge note"] = ""
+    if (state.get("Human gate status") or "").strip() in BLOCKED_STATES and root is not None and workflow_slug is not None:
+        enter_stage(state, current, root, workflow_slug)
+        if (state.get("Human gate status") or "").strip() in BLOCKED_STATES:
+            return state
+        return state
+    state["Blocked reason"] = ""
+    nxt = APPROVAL_NEXT_STAGE.get(current, current)
     enter_stage(state, nxt, root, workflow_slug)
     return auto_progress_gates(state, root, workflow_slug)
 
