@@ -530,15 +530,20 @@ def handle_refine(
     workflow_slug: str | None = None,
 ) -> dict[str, str]:
     current = ensure_stage(state.get("Current stage") or "discuss")
+    existing_block = (state.get("Human gate status") or "").strip() in BLOCKED_STATES
+    blocked_reason = state.get("Blocked reason", "").strip()
     state["Current stage"] = current
-    state["Human gate status"] = "pending"
+    state["Human gate status"] = "blocked" if existing_block else "pending"
     state["Rework target"] = current
     state["Rejection reason"] = ""
     state["Approval note"] = ""
-    state["Blocked reason"] = ""
+    state["Blocked reason"] = blocked_reason if existing_block else ""
     state["Item note"] = ""
     state["Challenge note"] = ""
-    state["Next action"] = f"refine {current}: {reason}".strip()
+    if existing_block:
+        state["Next action"] = f"resolve workflow block before refining {current}: {reason}".strip()
+    else:
+        state["Next action"] = f"refine {current}: {reason}".strip()
     if current == "implementation-planning" and root is not None and workflow_slug is not None:
         maybe_generate_implementation_plan(root, workflow_slug)
     if current == "story-enrichment" and root is not None and workflow_slug is not None:
