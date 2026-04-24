@@ -9,6 +9,7 @@ from subprocess import run
 
 STAGE_ORDER = [
     "discuss",
+    "capability-review",
     "epic-shaping",
     "story-slicing",
     "story-enrichment",
@@ -21,6 +22,7 @@ STAGE_ORDER = [
 ]
 
 GATED_STAGES = {
+    "capability-review",
     "epic-shaping",
     "story-slicing",
     "story-enrichment",
@@ -32,7 +34,8 @@ GATED_STAGES = {
 GATE_FIELDS = [f"{stage}.autoApprove" for stage in STAGE_ORDER if stage in GATED_STAGES]
 
 APPROVAL_NEXT_STAGE = {
-    "discuss": "epic-shaping",
+    "discuss": "capability-review",
+    "capability-review": "epic-shaping",
     "epic-shaping": "story-slicing",
     "story-slicing": "story-enrichment",
     "story-enrichment": "spec-authoring",
@@ -44,6 +47,7 @@ APPROVAL_NEXT_STAGE = {
 }
 
 REWORK_TARGET = {
+    "capability-review": "capability-review",
     "epic-shaping": "epic-shaping",
     "story-slicing": "story-slicing",
     "story-enrichment": "story-enrichment",
@@ -54,6 +58,7 @@ REWORK_TARGET = {
 
 NEXT_ACTION = {
     "discuss": "classify initiative and gather context",
+    "capability-review": "review capability inventory and approve or reject before epic shaping continues",
     "epic-shaping": "review epic draft and approve or reject before story slicing continues",
     "story-slicing": "review story slices and approve or reject before story enrichment continues",
     "story-enrichment": "review story scope, acceptance criteria, and test expectations",

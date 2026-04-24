@@ -46,6 +46,7 @@ def main() -> int:
     write_if_missing(
         wf / "gates.md",
         "# Gates\n\n"
+        "- capability-review.autoApprove: false\n"
         "- epic-shaping.autoApprove: false\n"
         "- story-slicing.autoApprove: false\n"
         "- story-enrichment.autoApprove: false\n"

@@ -169,6 +169,7 @@ Default example:
 ```text
 # Gates
 
+- capability-review.autoApprove: false
 - epic-shaping.autoApprove: false
 - story-slicing.autoApprove: false
 - story-enrichment.autoApprove: false
@@ -194,6 +195,8 @@ With that configuration, entering `story-enrichment` or `spec-authoring` will no
 
 ### Main gated stages
 
+- `capability-review`
+  - review the generated capability inventory and decide whether the sample or harness coverage is broad enough before epic shaping starts
 - `epic-shaping`
   - review the business problem, goal, non-goals, and constraints
 - `story-slicing`
@@ -312,13 +315,16 @@ If a human gate is still pending, `wrkflw:next` should not bypass it.
 
 For a normal story, the flow is usually:
 
-1. `story-enrichment` approved
-2. `spec-authoring` approved
-3. `implementation-planning` approved
-4. implementation happens
-5. `review` approved
-6. `release-planning` approved
-7. story closes and OpenSpec change is archived
+1. `capability-review` approved
+2. `epic-shaping` approved
+3. `story-slicing` approved
+4. `story-enrichment` approved
+5. `spec-authoring` approved
+6. `implementation-planning` approved
+7. implementation happens
+8. `review` approved
+9. `release-planning` approved
+10. story closes and OpenSpec change is archived
 
 ### How to decide between commands
 
