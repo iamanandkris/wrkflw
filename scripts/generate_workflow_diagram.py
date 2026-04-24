@@ -160,6 +160,43 @@ def extract_epic_sections(epic_text: str) -> dict[str, str]:
     return sections
 
 
+def context_value(path: Path, key: str) -> str:
+    raw = parse_kv_list(path)
+    return raw.get(key, "").strip()
+
+
+def first_design_section(text: str, section: str) -> str:
+    current: str | None = None
+    body: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## "):
+            if current == section:
+                break
+            current = line[3:].strip()
+            body = []
+            continue
+        if current == section and line.strip():
+            body.append(line.strip())
+    if not body:
+        return ""
+    first = body[0]
+    if first.startswith("- "):
+        return first[2:].strip()
+    return first
+
+
+def preferred_summary(*values: str) -> str:
+    for value in values:
+        cleaned = value.strip()
+        if not cleaned or cleaned == "-":
+            continue
+        if cleaned.startswith("- "):
+            continue
+        return cleaned
+    return "-"
+
+
 def story_file_progress(wf: Path, stories: list[dict[str, str]], state: dict[str, str]) -> dict[str, list[str]]:
     progress: dict[str, list[str]] = {}
     done_state = (state.get("Current stage", "") == "done")
@@ -472,8 +509,21 @@ def write_flow_diagram(
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
     epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
-    epic_problem = epic_sections.get("Problem", "-").splitlines()[0] if epic_sections.get("Problem") else "-"
-    epic_goal = epic_sections.get("Goal", "-").splitlines()[0] if epic_sections.get("Goal") else "-"
+    context_problem = context_value(wf / "context.md", "Problem")
+    context_goal = context_value(wf / "context.md", "Goal")
+    design_seed = read_text(wf / "design-seed.md")
+    design_problem = first_design_section(design_seed, "Purpose")
+    design_goal = first_design_section(design_seed, "Desired Outcome")
+    epic_problem = preferred_summary(
+        epic_sections.get("Problem", "").splitlines()[0] if epic_sections.get("Problem") else "",
+        context_problem,
+        design_problem,
+    )
+    epic_goal = preferred_summary(
+        epic_sections.get("Goal", "").splitlines()[0] if epic_sections.get("Goal") else "",
+        context_goal,
+        design_goal,
+    )
     lines = [
         "@startuml",
         f"title Workflow Flow: {slug}",
@@ -489,8 +539,12 @@ def write_flow_diagram(
     if current in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         current_openspec = "-"
     active_task_lines = task_summary_lines(completed_tasks, pending_tasks)
+    implementation_header = f"Active: {state.get('Active items', '-') or '-'}"
     if current in {"discuss", "capability-review", "epic-shaping", "story-slicing", "story-enrichment"}:
         active_task_lines = ["tasks pending for active story"]
+        implementation_header = "Planned slice preview"
+    elif STAGES.index(current) < STAGES.index("implementation"):
+        implementation_header = "Planned slice preview"
 
     lines.extend(
         [
@@ -523,7 +577,7 @@ def write_flow_diagram(
             *story_summary_lines(stories, state, progress, touched_order),
             "end note",
             "note right of implementation",
-            f"Active: {state.get('Active items', '-') or '-'}",
+            implementation_header,
             f"OpenSpec: {current_openspec}",
             *active_task_lines,
             "end note",
@@ -547,14 +601,22 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
-    epic = read_text(wf / "epic.md")
-    epic_goal = ""
-    for line in epic.splitlines():
-        if line.startswith("## Goal"):
-            continue
-        if epic_goal == "" and line.strip() and not line.startswith("#"):
-            epic_goal = line.strip()
-            break
+    epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
+    context_problem = context_value(wf / "context.md", "Problem")
+    context_goal = context_value(wf / "context.md", "Goal")
+    design_seed = read_text(wf / "design-seed.md")
+    design_problem = first_design_section(design_seed, "Purpose")
+    design_goal = first_design_section(design_seed, "Desired Outcome")
+    epic_problem = preferred_summary(
+        epic_sections.get("Problem", "").splitlines()[0] if epic_sections.get("Problem") else "",
+        context_problem,
+        design_problem,
+    )
+    epic_goal = preferred_summary(
+        epic_sections.get("Goal", "").splitlines()[0] if epic_sections.get("Goal") else "",
+        context_goal,
+        design_goal,
+    )
 
     active_story = state.get("Active items", "").split(",", 1)[0].strip()
     current_stage = state.get("Current stage", "")
@@ -586,7 +648,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         "",
         f'package "Epic" #white {{',
         f'  note as epic_note',
-        f'  Epic goal: {epic_goal or "-"}',
+        f'  Epic problem: {epic_problem}',
+        f'  Epic goal: {epic_goal}',
         f'  Workflow mode: {mode}',
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
