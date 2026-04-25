@@ -7,10 +7,16 @@ description: Use when the user writes wrkflw:discuss, asks to start a reusable e
 
 Treat `wrkflw:discuss "..."` as an explicit request to start or continue a staged workflow discussion.
 
-When starting a workflow, first look for a design seed:
+When starting a workflow, inspect the current repository first when one exists:
+- inspect the existing codebase before treating a design document as the primary source of truth
+- start from repository evidence such as `README.md`, build files, source entrypoints, tests, and active OpenSpec artifacts
+- summarize the current implementation shape, capability coverage, and obvious gaps before shaping stories
+- reconcile observed code with intended behavior and surface conflicts explicitly
+
+Then look for a design seed:
 - auto-detect `design.md` or `docs/design.md` in the active repo
 - if the user gives an explicit file path, prefer that path instead
-- seed the workflow from that file before shaping epic/story artifacts
+- seed the workflow from that file after the initial codebase reconnaissance
 - record the seed in `.workflow/<slug>/links.md` and `.workflow/<slug>/design-seed.md`
 
 Also treat these as workflow control intents:
@@ -30,13 +36,15 @@ Also treat these as workflow control intents:
 
 1. Classify the request as epic, story, bug, spike, or refactor.
 2. Identify the current stage.
-3. Create or refresh a capability inventory before story slicing so sample and harness work does not converge too early on a thin result.
-4. Ask only the minimum relevant questions.
-5. Recommend the next tool and mode.
-6. Stop at human approval gates.
-7. If useful, initialize a local workflow workspace in the current repo.
-8. If a gate is rejected, record the rejection and route work back to the right prior stage.
-9. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
+3. If a repository or existing system already exists, inspect the codebase before treating design documents as the primary source of truth.
+4. Start discovery from repository evidence such as `README.md`, build files, source entrypoints, tests, and active OpenSpec artifacts.
+5. Create or refresh a capability inventory before story slicing so sample and harness work does not converge too early on a thin result.
+6. Ask only the minimum relevant questions.
+7. Recommend the next tool and mode.
+8. Stop at human approval gates.
+9. If useful, initialize a local workflow workspace in the current repo.
+10. If a gate is rejected, record the rejection and route work back to the right prior stage.
+11. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
 
 ## Workspace Convention
 
@@ -103,7 +111,11 @@ python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --co
 ```
 
 Behavior expectations:
-- `wrkflw:discuss` should prefer the design seed as the initial source of truth when one exists, instead of relying only on the user’s one-line summary.
+- `wrkflw:discuss` should inspect the existing codebase first when one exists, before treating a design document or design seed as the primary source of truth.
+- `wrkflw:discuss` should use repository evidence such as `README.md`, build files, source entrypoints, tests, and active OpenSpec artifacts as first-pass evidence of current behavior.
+- `wrkflw:discuss` should summarize the current implementation shape, capability coverage, and obvious gaps before story slicing.
+- `wrkflw:discuss` should reconcile observed code with the design seed or design document and surface conflicts explicitly before moving into epic shaping or story slicing.
+- `wrkflw:discuss` should use the design seed as the primary planning input after the initial codebase reconnaissance, instead of relying only on the user’s one-line summary.
 - `wrkflw:discuss` should also create or refresh `.workflow/<slug>/capabilities.md` so story slicing starts from capability categories instead of only the first obvious implementation slice.
 - `wrkflw` should stop at a dedicated capability-review gate after `discuss` so the user can approve, reject, or refine the generated capability inventory before epic shaping continues.
 - entering `story-slicing` should regenerate `.workflow/<slug>/stories.md` from `.workflow/<slug>/capabilities.md` so the story plan reflects the reviewed capability inventory instead of stale generic slices.
