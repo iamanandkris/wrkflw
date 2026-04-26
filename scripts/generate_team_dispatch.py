@@ -229,6 +229,7 @@ def packet_body(
             f"- Stay inside these allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
             "- Do not edit canonical `state.md` directly.",
             "- Summarize important discussions, decisions, and handoffs in `team-minutes.md`.",
+            "- When you finish or hand off, give the orchestrator a concise role/status summary so it can run `wrkflw:team-sync` sequentially.",
             "- Surface findings through `review-log.md` or `execution-board.md` notes as appropriate.",
             "",
         ]

@@ -796,6 +796,190 @@ def update_execution_review_row(path: Path, reviewer: str, notes: str) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+STATUS_RANK = {
+    "optional": 0,
+    "planned": 1,
+    "in-progress": 2,
+    "in-review": 3,
+    "done": 4,
+}
+
+
+def stronger_status(baseline: str, existing: str) -> str:
+    existing_clean = existing.strip().lower()
+    baseline_clean = baseline.strip().lower()
+    if existing_clean == "blocked":
+        return "blocked"
+    if baseline_clean == "blocked":
+        return baseline_clean
+    if STATUS_RANK.get(existing_clean, -1) >= STATUS_RANK.get(baseline_clean, -1):
+        return existing_clean or baseline_clean
+    return baseline_clean
+
+
+def execution_board_rows(path: Path) -> tuple[dict[str, str], dict[str, list[str]]]:
+    board = {"Workflow slug": "-", "Active story": "-", "Active owner": "-", "Current handoff": "-"}
+    rows: dict[str, list[str]] = {}
+    if not path.exists():
+        return board, rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("- ") and ":" in line:
+            key, _, value = line[2:].partition(":")
+            key = key.strip()
+            if key in board:
+                board[key] = value.strip()
+    for parts in parse_markdown_table_rows(path):
+        if len(parts) >= 6:
+            rows[parts[0]] = parts[:6]
+        elif len(parts) == 5:
+            parts.insert(4, "Reviewer QA")
+            rows[parts[0]] = parts[:6]
+    return board, rows
+
+
+def write_execution_board(
+    path: Path,
+    workflow_slug: str,
+    active_story: str,
+    active_owner: str,
+    current_handoff: str,
+    rows: list[list[str]],
+) -> None:
+    lines = [
+        "# Execution Board",
+        "",
+        f"- Workflow slug: {workflow_slug}",
+        f"- Active story: {active_story}",
+        f"- Active owner: {active_owner}",
+        f"- Current handoff: {current_handoff}",
+        "",
+        "| Work Item | Owner Role | Status | Blocked By | Reviewer | Notes |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
+    lines.extend(
+        [
+            "",
+            "## Status Vocabulary",
+            "",
+            "- `planned`",
+            "- `in-progress`",
+            "- `blocked`",
+            "- `in-review`",
+            "- `done`",
+            "- `optional`",
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def execution_row_name_for_role(role: str) -> str:
+    return {
+        "Product Owner": "Story scope and acceptance review",
+        "Tech Lead": "Technical decomposition",
+        "Implementer 1": "Implementation slice 1",
+        "Implementer 2": "Implementation slice 2",
+        "Reviewer QA": "Review and challenge",
+    }.get(role, "")
+
+
+def update_execution_row_for_role(
+    path: Path,
+    workflow_slug: str,
+    role: str,
+    status: str,
+    note: str,
+    blocked_by: str = "",
+    reviewer: str | None = None,
+) -> None:
+    board, row_map = execution_board_rows(path)
+    row_name = execution_row_name_for_role(role)
+    if not row_name:
+        return
+    row = row_map.get(row_name, [row_name, role, "planned", "", reviewer or "", ""])
+    while len(row) < 6:
+        row.append("")
+    row[1] = role
+    row[2] = status
+    row[3] = blocked_by
+    if reviewer is not None:
+        row[4] = reviewer
+    elif not row[4]:
+        row[4] = "Reviewer QA" if role != "Reviewer QA" else "Product Owner"
+    if note:
+        row[5] = note
+    ordered_names = [
+        "Story scope and acceptance review",
+        "Technical decomposition",
+        "Implementation slice 1",
+        "Implementation slice 2",
+        "Review and challenge",
+    ]
+    rows = []
+    row_map[row_name] = row
+    for name in ordered_names:
+        existing = row_map.get(name)
+        if existing:
+            rows.append(existing)
+    write_execution_board(
+        path,
+        workflow_slug,
+        board.get("Active story", "-"),
+        board.get("Active owner", "-"),
+        board.get("Current handoff", "-"),
+        rows,
+    )
+
+
+def role_status_from_board(path: Path, role: str) -> str:
+    _, row_map = execution_board_rows(path)
+    row_name = execution_row_name_for_role(role)
+    row = row_map.get(row_name, [])
+    return row[2].strip().lower() if len(row) >= 3 else ""
+
+
+def infer_role_from_output(
+    directive_text: str,
+    rows: dict[str, dict[str, str]],
+) -> str:
+    lowered = directive_text.lower()
+    explicit = canonical_role_name(
+        parse_directives(directive_text).get("role", "") or parse_directives(directive_text).get("owner", "")
+    )
+    if explicit in rows or explicit in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
+        return explicit
+    changed_match = re.search(r"Changed\s+[`']?([^`'\n]+)[`']?", directive_text, flags=re.IGNORECASE)
+    if changed_match:
+        changed_path = changed_match.group(1).strip()
+        for role, row in rows.items():
+            for allowed in parse_allowed_paths(row.get("Allowed Write Paths", "")):
+                if changed_path == allowed or changed_path.startswith(allowed.rstrip("/") + "/"):
+                    return role
+    if "no serious findings" in lowered or "reviewer qa" in lowered or "re-review" in lowered:
+        return "Reviewer QA"
+    if "scope is mostly clear" in lowered or "out of scope" in lowered:
+        return "Product Owner"
+    if "boundary check" in lowered or "coordination risk" in lowered:
+        return "Tech Lead"
+    return ""
+
+
+def infer_status_from_output(directive_text: str) -> str:
+    lowered = directive_text.lower()
+    directives = parse_directives(directive_text)
+    explicit = directives.get("status", "").strip().lower()
+    if explicit:
+        return explicit
+    if "no serious findings" in lowered or "changed " in lowered or "fixes made" in lowered or "specific fixes" in lowered:
+        return "done"
+    if "blocked" in lowered or "cannot proceed" in lowered:
+        return "blocked"
+    if "finding" in lowered or "findings" in lowered or "review" in lowered:
+        return "in-review"
+    return "in-progress"
+
+
 def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) -> None:
     board_path = root / ".workflow" / workflow_slug / "execution-board.md"
     if not board_path.exists():
@@ -808,13 +992,7 @@ def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) 
     except ValueError:
         parallel_slots = 1
 
-    row_map: dict[str, list[str]] = {}
-    for parts in parse_markdown_table_rows(board_path):
-        if len(parts) >= 6:
-            row_map[parts[0]] = parts[:6]
-        elif len(parts) == 5:
-            parts.insert(4, "Reviewer QA")
-            row_map[parts[0]] = parts[:6]
+    _, row_map = execution_board_rows(board_path)
 
     def canonical_row(name: str, owner: str, reviewer: str, status: str) -> list[str]:
         row = row_map.get(name, [name, owner, status, "", reviewer, ""])
@@ -822,7 +1000,7 @@ def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) 
             row.append("")
         row[0] = name
         row[1] = owner
-        row[2] = status
+        row[2] = stronger_status(status, row[2])
         if not row[4]:
             row[4] = reviewer
         return row
@@ -873,34 +1051,29 @@ def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) 
         canonical_row("Implementation slice 2", "Implementer 2", "Reviewer QA", impl2_status),
         canonical_row("Review and challenge", "Reviewer QA", "Product Owner", review_status),
     ]
-
-    lines = [
-        "# Execution Board",
-        "",
-        f"- Workflow slug: {workflow_slug}",
-        f"- Active story: {active_story}",
-        f"- Active owner: {active_owner}",
-        f"- Current handoff: {current_handoff}",
-        "",
-        "| Work Item | Owner Role | Status | Blocked By | Reviewer | Notes |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    lines.extend("| " + " | ".join(row) + " |" for row in rows)
-    lines.extend(
-        [
-            "",
-            "## Status Vocabulary",
-            "",
-            "- `planned`",
-            "- `in-progress`",
-            "- `blocked`",
-            "- `in-review`",
-            "- `done`",
-            "- `optional`",
-            "",
-        ]
-    )
-    board_path.write_text("\n".join(lines), encoding="utf-8")
+    row_lookup = {row[0]: row for row in rows}
+    impl1_live = row_lookup["Implementation slice 1"][2]
+    impl2_live = row_lookup["Implementation slice 2"][2]
+    review_live = row_lookup["Review and challenge"][2]
+    active_impl_roles = []
+    if impl1_live in {"in-progress", "in-review", "done"}:
+        active_impl_roles.append("Implementer 1")
+    if parallel_slots > 1 and impl2_live in {"in-progress", "in-review", "done"}:
+        active_impl_roles.append("Implementer 2")
+    all_impl_done = impl1_live == "done" and (parallel_slots == 1 or impl2_live == "done")
+    if review_live in {"in-progress", "in-review"}:
+        active_owner = "Reviewer QA"
+        current_handoff = "Reviewer QA -> Product Owner"
+    elif all_impl_done:
+        active_owner = "Reviewer QA"
+        current_handoff = "Reviewer QA -> Product Owner"
+    elif active_impl_roles:
+        active_owner = " + ".join(active_impl_roles)
+        current_handoff = f"{active_owner} -> Reviewer QA"
+    elif row_lookup["Technical decomposition"][2] in {"done", "in-progress"} and stage in {"implementation-planning", "implementation"}:
+        active_owner = "Tech Lead"
+        current_handoff = "Tech Lead -> Implementer 1" if parallel_slots == 1 else "Tech Lead -> Implementer 1 + Implementer 2"
+    write_execution_board(board_path, workflow_slug, active_story, active_owner, current_handoff, rows)
 
 
 def review_log_roles(path: Path) -> set[str]:
@@ -944,6 +1117,102 @@ def set_runtime_mode(root: Path, workflow_slug: str, mode: str, spawn_policy: st
 
 def team_minutes_path(root: Path, workflow_slug: str) -> Path:
     return root / ".workflow" / workflow_slug / "team-minutes.md"
+
+
+def maybe_stage_for_team_status(state: dict[str, str], role: str, status: str, root: Path, workflow_slug: str) -> None:
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    board_path = root / ".workflow" / workflow_slug / "execution-board.md"
+    if role in {"Implementer 1", "Implementer 2"} and status in {"in-progress", "in-review", "done"}:
+        if current == "implementation-planning":
+            state["Current stage"] = "implementation"
+            state["Human gate status"] = "approved"
+        if current in {"implementation-planning", "implementation"}:
+            impl1_status = role_status_from_board(board_path, "Implementer 1")
+            impl2_status = role_status_from_board(board_path, "Implementer 2")
+            team = parse_team_settings(root, workflow_slug)
+            try:
+                parallel_slots = max(1, int(team.get("Parallel implementation slots", "1").strip()))
+            except ValueError:
+                parallel_slots = 1
+            all_done = impl1_status == "done" and (parallel_slots == 1 or impl2_status == "done")
+            if all_done:
+                state["Next action"] = "run Reviewer QA review and synchronize findings for the active story"
+            else:
+                state["Next action"] = "continue delegated implementation and keep handoffs synchronized"
+        state["Item note"] = f"{role} marked {status}"
+    elif role == "Reviewer QA" and status in {"in-progress", "in-review", "done"}:
+        if current in {"implementation-planning", "implementation"}:
+            state["Current stage"] = "review"
+            state["Human gate status"] = "pending"
+        state["Next action"] = (
+            "review evidence is ready; approve when the current gate is satisfied"
+            if status == "done"
+            else "continue review and record findings in review-log.md"
+        )
+        state["Item note"] = f"Reviewer QA marked {status}"
+    elif role == "Tech Lead" and status == "done":
+        state["Next action"] = "start delegated implementation and keep implementer handoffs explicit"
+        state["Item note"] = "technical decomposition completed"
+    elif role == "Product Owner" and status == "done":
+        state["Item note"] = "product-owner scope review completed"
+
+
+def handle_team_sync(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    directive_text: str,
+) -> dict[str, str]:
+    directives = parse_directives(directive_text)
+    assignments_path = root / ".workflow" / workflow_slug / "agent-assignments.md"
+    rows = parse_assignment_rows(assignments_path)
+    role = canonical_role_name(directives.get("role", "") or directives.get("owner", "") or "")
+    if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
+        role = infer_role_from_output(directive_text, rows)
+    if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = "team-sync requires a recognized role."
+        state["Next action"] = "provide role, status, and note for the team member being synchronized"
+        return state
+    status = infer_status_from_output(directive_text)
+    if status not in {"planned", "in-progress", "in-review", "done", "blocked", "optional"}:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = f"team-sync received unsupported status: {status}"
+        state["Next action"] = "use one of planned, in-progress, in-review, done, blocked, or optional"
+        return state
+    note = directives.get("note", "").strip() or directives.get("summary", "").strip()
+    if not note:
+        stripped = directive_text.strip()
+        if stripped:
+            note = stripped.replace("\n", " ").strip()
+    follow_up = directives.get("follow-up", "").strip() or directives.get("follow up", "").strip()
+    blocked_by = directives.get("blocked by", "").strip()
+    reviewer = directives.get("reviewer", "").strip() or None
+
+    board_path = root / ".workflow" / workflow_slug / "execution-board.md"
+    update_execution_row_for_role(board_path, workflow_slug, role, status, note, blocked_by, reviewer)
+
+    if role in rows:
+        rows[role]["Status"] = status
+        write_assignment_rows(assignments_path, workflow_slug, rows)
+
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "handoff" if status == "done" else "team-sync",
+        f"{role}, Workflow Orchestrator",
+        note or f"{role} marked {status}",
+        follow_up or "Refresh workflow visibility and continue the active handoff",
+    )
+    if status == "blocked":
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = note or f"{role} is blocked"
+        state["Item note"] = f"{role} marked blocked"
+        state["Next action"] = follow_up or f"resolve the {role} block before continuing"
+    else:
+        if note == state.get("Blocked reason", "").strip():
+            state["Blocked reason"] = ""
+        maybe_stage_for_team_status(state, role, status, root, workflow_slug)
+    return state
 
 
 def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
@@ -1150,12 +1419,15 @@ def handle_review_sync(
         "Approve when the current gate is satisfied",
     )
     current = ensure_stage(state.get("Current stage") or "discuss")
+    unresolved = unresolved_review_summary(review_path)
     blocked, _ = team_review_block(root, workflow_slug, current)
-    if not blocked and state.get("Human gate status") == "blocked" and "signoff is missing in review-log.md" in state.get("Blocked reason", ""):
-        state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
-        state["Blocked reason"] = ""
+    if not blocked and state.get("Human gate status") == "blocked":
+        blocked_reason = state.get("Blocked reason", "")
+        if "signoff is missing in review-log.md" in blocked_reason or not unresolved:
+            state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
+            state["Blocked reason"] = ""
     state["Item note"] = f"review evidence synchronized: {summary}"
-    state["Challenge note"] = unresolved_review_summary(review_path)
+    state["Challenge note"] = unresolved
     state["Next action"] = "review evidence is synchronized; approve when the current gate is satisfied"
     return state
 
@@ -1663,7 +1935,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, override, and team operations.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync", "team-run"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync", "team-run", "team-sync"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -1715,10 +1987,14 @@ def main() -> int:
         state = handle_review_sync(state, root, args.slug, args.reason)
     elif args.command == "team-run":
         state = handle_team_run(state, root, args.slug, args.reason)
+    elif args.command == "team-sync":
+        state = handle_team_sync(state, root, args.slug, args.reason or args.items or "")
 
     write_state(state_path, state)
     sync_execution_board(root, args.slug, state)
     sync_runtime_contract(root, args.slug, state)
+    if ensure_stage(state.get("Current stage") or "discuss") in {"implementation-planning", "implementation", "review"}:
+        maybe_generate_implementation_plan(root, args.slug)
     update_initiative_index(root, args.slug, state)
     append_history_event(root, args.slug, args.command, before_state, state)
     run(

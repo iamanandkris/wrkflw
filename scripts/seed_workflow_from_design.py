@@ -39,6 +39,181 @@ STOPWORDS = {
     "service",
 }
 
+EPIC_OVERRIDES = [
+    {
+        "slug_terms": ["contract", "lifecycle", "foundation"],
+        "slug": "contract-and-lifecycle-foundation",
+        "title": "Contract And Lifecycle Foundation",
+        "scope_terms": [
+            "lifecycle validation is contract first",
+            "concentric for contract lifecycle enforcement",
+            "case payload contracts",
+            "decision contracts",
+            "evidence contracts",
+            "view contracts",
+            "patch based mutation",
+            "schema introspection",
+            "java integration boundary",
+            "caseflow-contract-runtime",
+        ],
+        "note_terms": [
+            "java scala interop boundary",
+            "concentric availability",
+            "contract first lifecycle enforcement",
+        ],
+        "default_scope": [
+            "Create the dedicated Concentric-backed contract runtime boundary for Java/Spring services",
+            "Define case, decision, evidence, and view contracts with lifecycle-aware field semantics",
+            "Centralize patch validation, masked/internal views, immutable-field handling, and schema exposure",
+        ],
+        "default_notes": [
+            "Keep Scala 3 Concentric interop isolated behind Java-friendly service interfaces",
+            "Treat contract-derived schema metadata as a first-class dependency for the UI and policy engine",
+        ],
+    },
+    {
+        "slug_terms": ["core", "case", "task", "orchestration"],
+        "slug": "core-case-and-task-orchestration",
+        "title": "Core Case And Task Orchestration",
+        "scope_terms": [
+            "creates and manages cases",
+            "task",
+            "case management",
+            "workflow policy engine",
+            "stage graph",
+            "transition",
+            "reopen",
+            "decisionrecord",
+            "approval dependencies",
+        ],
+        "note_terms": [
+            "modular monolith with evented boundaries",
+            "case api service",
+            "workflow policy engine",
+        ],
+        "default_scope": [
+            "Model the primary case and task aggregates, stage graph, and orchestration services",
+            "Implement case creation, retrieval, mutation, and transition flows with strong consistency",
+        ],
+    },
+    {
+        "slug_terms": ["approval", "decision", "governance"],
+        "slug": "approvals-and-decision-governance",
+        "title": "Approvals And Decision Governance",
+        "scope_terms": [
+            "approval",
+            "decision",
+            "override",
+            "delegate",
+            "reject",
+            "manager approval",
+            "approval service",
+        ],
+        "note_terms": [
+            "default block on invalid progression",
+            "approvers / managers",
+        ],
+        "default_scope": [
+            "Model approval steps, structured decisions, and override/delegation flows",
+            "Enforce approval dependencies before protected transitions or actions succeed",
+        ],
+    },
+    {
+        "slug_terms": ["evidence", "intake", "secure", "storage"],
+        "slug": "evidence-intake-and-secure-storage",
+        "title": "Evidence Intake And Secure Storage",
+        "scope_terms": [
+            "evidence",
+            "object storage",
+            "minio",
+            "malware scan",
+            "retention",
+            "signed url",
+            "secure download",
+        ],
+        "note_terms": [
+            "binary evidence should not live in the transactional database",
+            "evidence service",
+        ],
+        "default_scope": [
+            "Separate transactional evidence metadata from binary object storage operations",
+            "Handle upload completion, retention metadata, sensitivity, and secure retrieval policies",
+        ],
+    },
+    {
+        "slug_terms": ["queue", "operations", "sla", "management"],
+        "slug": "queue-operations-and-sla-management",
+        "title": "Queue Operations And SLA Management",
+        "scope_terms": [
+            "queue",
+            "sla",
+            "escalation",
+            "assignment",
+            "aging",
+            "supervisor",
+            "claim",
+            "scheduler",
+        ],
+        "note_terms": [
+            "queue and sla state are first class",
+            "sla escalation scheduler",
+            "redis",
+        ],
+        "default_scope": [
+            "Model queue assignment, claiming, balancing, and SLA tracking as first-class domain concerns",
+            "Support escalation scheduling, breach detection, and supervisor-facing operational views",
+        ],
+    },
+    {
+        "slug_terms": ["audit", "search", "timeline", "reconstruction"],
+        "slug": "audit-search-and-timeline-reconstruction",
+        "title": "Audit Search And Timeline Reconstruction",
+        "scope_terms": [
+            "audit",
+            "timeline",
+            "reconstruct",
+            "search",
+            "opensearch",
+            "outbox",
+            "projector",
+            "compliance",
+        ],
+        "note_terms": [
+            "human readable and machine readable audit",
+            "search projector",
+            "opensearch is non authoritative",
+        ],
+        "default_scope": [
+            "Persist immutable audit events and reconstruct user-visible timelines from state deltas",
+            "Project search-friendly operational read models without treating them as authoritative",
+        ],
+    },
+    {
+        "slug_terms": ["admin", "template", "design", "experience"],
+        "slug": "admin-template-design-experience",
+        "title": "Admin Template Design Experience",
+        "scope_terms": [
+            "process designers",
+            "template",
+            "stage policies",
+            "ui",
+            "form",
+            "schema metadata",
+            "react",
+            "vite",
+        ],
+        "note_terms": [
+            "frontend",
+            "schema contract drift",
+            "process designers",
+        ],
+        "default_scope": [
+            "Support process-designer configuration of case types, stage policies, and routing templates",
+            "Expose contract-derived schema metadata that keeps admin forms aligned with backend rules",
+        ],
+    },
+]
+
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
@@ -513,6 +688,72 @@ def select_epic_for_slug(slug: str, clusters: list[dict[str, str]]) -> dict[str,
     return best or clusters[0]
 
 
+def is_caseflow_design(problem: str, goal: str, decisions: list[str]) -> bool:
+    combined = " ".join([problem, goal, *decisions]).lower()
+    signals = [
+        "case management",
+        "workflow platform",
+        "approval",
+        "evidence",
+        "sla",
+        "queue",
+        "concentric",
+    ]
+    return sum(1 for signal in signals if signal in combined) >= 3
+
+
+def score_text(text: str, terms: list[str]) -> int:
+    lowered = text.lower()
+    return sum(1 for term in terms if term in lowered)
+
+
+def infer_override_cluster(slug: str, design_text: str, sections: dict[str, str]) -> dict[str, str] | None:
+    target_tokens = slug_tokens(slug)
+    section_text = "\n".join(value for value in sections.values() if value.strip())
+    exact_candidates = [override for override in EPIC_OVERRIDES if target_tokens & set(override["slug_terms"])]
+    candidates = exact_candidates or EPIC_OVERRIDES
+
+    best: dict[str, str] | None = None
+    best_score = 0
+    for override in candidates:
+        score = len(target_tokens & set(override["slug_terms"])) * 100
+        score += score_text(design_text, override["scope_terms"]) * 10
+        score += score_text(section_text, override["note_terms"]) * 5
+        if score > best_score:
+            best = override
+            best_score = score
+    if best is None or best_score <= 0:
+        return None
+
+    scope_items: list[str] = []
+    note_items: list[str] = []
+    for bullet in extract_labeled_bullets(design_text, ["What It Does", "Core Entities", "Where Concentric Applies", "Major Components", "Core APIs"]):
+        if score_text(bullet, best["scope_terms"]) > 0:
+            scope_items.append(bullet)
+    for bullet in extract_labeled_bullets(design_text, ["Who Uses It", "Key Architectural Decisions", "Compatibility Caveats", "Must-Follow Concentric Patterns", "Architecture Style"]):
+        if score_text(bullet, best["scope_terms"] + best["note_terms"]) > 0:
+            note_items.append(bullet)
+
+    scope_items = dedupe(scope_items)
+    note_items = dedupe(note_items)
+    if not scope_items:
+        scope_items.extend(best.get("default_scope", []) or [best["title"]])
+    if not note_items:
+        note_items.extend(best.get("default_notes", []))
+    summary = scope_items[0]
+    if len(scope_items) > 1:
+        summary = f"{scope_items[0]} Additional scope includes: " + "; ".join(scope_items[1:3])
+    elif note_items:
+        summary = f"{scope_items[0]} Use the normalized design notes to shape the first story slice."
+
+    return {
+        "slug": best["slug"],
+        "title": best["title"],
+        "summary": summary,
+        "details": build_cluster_details(scope_items, note_items),
+    }
+
+
 def render_design_slice(
     source_path: Path,
     normalized_path: Path,
@@ -623,6 +864,17 @@ def main() -> int:
         decisions = dedupe(labeled_decisions + decisions)
 
     clusters = infer_capability_clusters(design_text, sections)
+    if is_caseflow_design(problem, goal, decisions):
+        curated_clusters: list[dict[str, str]] = []
+        seen_slugs: set[str] = set()
+        for override in EPIC_OVERRIDES:
+            cluster = infer_override_cluster(override["slug"], design_text, sections)
+            if not cluster or cluster["slug"] in seen_slugs:
+                continue
+            curated_clusters.append(cluster)
+            seen_slugs.add(cluster["slug"])
+        if curated_clusters:
+            clusters = curated_clusters
 
     normalized_root = root / ".workflow" / "_normalized"
     normalized_root.mkdir(parents=True, exist_ok=True)
@@ -646,6 +898,10 @@ def main() -> int:
         encoding="utf-8",
     )
     selected_epic = select_epic_for_slug(args.slug, clusters)
+    if is_caseflow_design(problem, goal, decisions):
+        override_epic = infer_override_cluster(args.slug, design_text, sections)
+        if override_epic is not None:
+            selected_epic = override_epic
 
     context_path = wf / "context.md"
     write_context(

@@ -290,6 +290,76 @@ def parse_story_entries(stories_text: str) -> list[dict[str, str]]:
     if current is not None:
         current["body"] = "\n".join(body).strip()
         entries.append(current)
+    if entries:
+        return entries
+
+    bullet_entries: list[dict[str, str]] = []
+    current = None
+    body = []
+    for raw_line in stories_text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        bullet_match = re.match(r"-\s+(Story\s+\d+):\s+(.+)", stripped)
+        if bullet_match:
+            if current is not None:
+                current["body"] = "\n".join(body).strip()
+                bullet_entries.append(current)
+            current = {
+                "name": bullet_match.group(1).strip(),
+                "title": bullet_match.group(2).strip(),
+                "depends_on": "",
+                "body": "",
+            }
+            body = []
+            continue
+        if current is None:
+            continue
+        if stripped.startswith("- Goal:"):
+            body.append(stripped.split(":", 1)[1].strip())
+        elif stripped.lower().startswith("- depends on:"):
+            current["depends_on"] = stripped.split(":", 1)[1].strip()
+        elif stripped:
+            body.append(stripped.lstrip("- ").strip())
+    if current is not None:
+        current["body"] = "\n".join(body).strip()
+        bullet_entries.append(current)
+    return bullet_entries
+
+
+def story_file_entries(wf: Path) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for story_path in sorted(wf.glob("story-*.md")):
+        match = re.search(r"story-(\d+)\.md$", story_path.name)
+        if not match:
+            continue
+        number = match.group(1)
+        name = f"Story {number}"
+        title = ""
+        scope = ""
+        depends_on = ""
+        current_section = ""
+        for raw_line in read_text(story_path).splitlines():
+            line = raw_line.rstrip()
+            if line.startswith("## "):
+                current_section = line[3:].strip()
+                continue
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if current_section == "Story" and not title:
+                title = stripped
+            elif current_section == "Scope":
+                scope = stripped if not scope else f"{scope} {stripped}"
+            elif stripped.lower().startswith("depends on:"):
+                depends_on = stripped.split(":", 1)[1].strip()
+        entries.append(
+            {
+                "name": name,
+                "title": title or name,
+                "depends_on": depends_on,
+                "body": scope or "-",
+            }
+        )
     return entries
 
 
@@ -893,6 +963,8 @@ def write_flow_diagram(
 
 def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[str, str]) -> None:
     stories = parse_story_entries(read_text(wf / "stories.md"))
+    if not stories:
+        stories = story_file_entries(wf)
     gates = parse_gate_settings(wf / "gates.md")
     contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
@@ -985,6 +1057,16 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
             for dep in [item.strip() for item in story["depends_on"].split(",") if item.strip()]:
                 lines.append(f"{alias(dep)} --> {story_alias}")
 
+    if active_story and not any(story["name"] == active_story for story in stories):
+        lines.extend(
+            [
+                "",
+                'package "Stories" #white {',
+                f'  rectangle "{puml_text(active_story)}\\n[active]\\n-" as {alias(active_story)} #8ecae6',
+                "}",
+            ]
+        )
+
     completed_stories = completed_story_entries(stories, state, progress, touched_order)
     if completed_stories:
         lines.extend(
@@ -1050,6 +1132,8 @@ def main() -> int:
     state = parse_state(wf / "state.md")
     links = parse_kv_list(wf / "links.md")
     stories = parse_story_entries(read_text(wf / "stories.md"))
+    if not stories:
+        stories = story_file_entries(wf)
     openspec_change = links.get("OpenSpec change", "")
     openspec_tasks_path = Path(wf.parent.parent / openspec_change / "tasks.md") if openspec_change else None
     workflow_tasks_text = read_text(wf / "tasks.md")

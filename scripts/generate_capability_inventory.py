@@ -19,6 +19,22 @@ def first_line_starting(text: str, prefix: str) -> str:
 
 def detect_mode(text: str) -> tuple[str, str]:
     lowered = text.lower()
+    if any(
+        term in lowered
+        for term in [
+            "spring boot",
+            "modular monolith",
+            "rest endpoints",
+            "api service",
+            "workflow platform",
+            "case management",
+            "production",
+        ]
+    ):
+        return (
+            "product-service",
+            "The seed language describes a runtime-facing backend platform with APIs, lifecycle rules, and operational behavior.",
+        )
     if any(term in lowered for term in ["harness", "testing service", "compare", "polyglot", "benchmark", "load test"]):
         return (
             "feature-harness",
@@ -114,6 +130,70 @@ CAPABILITIES = [
 ]
 
 
+SERVICE_CAPABILITIES = [
+    {
+        "name": "Contract Runtime Boundary",
+        "keywords": ["concentric", "jvmcontract", "jvmpatch", "java integration boundary", "contract-first", "caseflow-contract-runtime"],
+        "why": "A Java/Spring system using Scala-backed Concentric artifacts needs a dedicated boundary so lifecycle semantics stay centralized and interop does not leak across the codebase.",
+        "stories": ["Create the contract runtime module and Java-friendly service interfaces", "Translate Concentric validation results into platform error shapes"],
+    },
+    {
+        "name": "Case And Task Domain Model",
+        "keywords": ["case", "task", "casetype", "queueassignment", "decisionrecord", "approvalstep"],
+        "why": "The core domain types must be explicit before APIs, policies, and projections can evolve safely.",
+        "stories": ["Define the core aggregates and persistence shape", "Document stage and task lifecycle semantics"],
+    },
+    {
+        "name": "Lifecycle Transition Enforcement",
+        "keywords": ["transition", "required fields", "immutable", "masked", "internal", "allowed transitions", "stage"],
+        "why": "Lifecycle enforcement is the central behavior of the platform, not a peripheral validation detail.",
+        "stories": ["Validate case progression through contract and policy checks", "Return structured failure reasons for blocked transitions"],
+    },
+    {
+        "name": "Patch And Partial Mutation",
+        "keywords": ["patch", "partial", "update", "merge"],
+        "why": "Patch-based writes are necessary for audit deltas, partial UI updates, and controlled integration mutations.",
+        "stories": ["Expose patch-based update flows for primary write APIs", "Preserve field-level lifecycle semantics during partial updates"],
+    },
+    {
+        "name": "Approval And Decision Governance",
+        "keywords": ["approval", "approve", "reject", "delegate", "override", "decision"],
+        "why": "Approval steps and structured decisions are part of the operational contract, not a later add-on.",
+        "stories": ["Model approval steps and decision records with explicit validation", "Enforce approval dependencies before sensitive actions succeed"],
+    },
+    {
+        "name": "Evidence Intake And Secure Views",
+        "keywords": ["evidence", "retention", "sensitivity", "malware", "signed url", "secure download"],
+        "why": "Evidence handling combines contract validation, secure metadata exposure, and operational pipelines.",
+        "stories": ["Define evidence metadata contracts and secure view filtering", "Separate binary-object handling from transactional state"],
+    },
+    {
+        "name": "Queue, SLA, And Assignment Operations",
+        "keywords": ["queue", "sla", "assignment", "escalation", "claim", "aging", "supervisor"],
+        "why": "Operational throughput and breach handling are core product capabilities for case-working teams.",
+        "stories": ["Represent assignment and SLA state explicitly in the domain", "Support queue queries and escalation scheduling hooks"],
+    },
+    {
+        "name": "Audit Trail And Timeline Reconstruction",
+        "keywords": ["audit", "timeline", "reconstruct", "delta", "immutable"],
+        "why": "A regulated workflow platform must make every material change reconstructable and reviewable.",
+        "stories": ["Persist immutable audit events for material changes", "Provide timeline reconstruction semantics from domain deltas"],
+    },
+    {
+        "name": "API And Event Surface",
+        "keywords": ["api", "endpoint", "rest", "event", "kafka", "outbox", "publisher"],
+        "why": "The transactional domain needs explicit synchronous and asynchronous boundaries for integrations and UI clients.",
+        "stories": ["Define the initial REST write/read surface", "Emit durable domain events after successful state changes"],
+    },
+    {
+        "name": "Schema And UI Metadata",
+        "keywords": ["schema introspection", "schema", "ui", "form", "process designers", "react", "metadata"],
+        "why": "The admin UI and stage-specific forms depend on reliable schema metadata from the contract layer.",
+        "stories": ["Expose contract-derived schema metadata for stage-aware forms", "Document how UI expectations stay aligned with contract updates"],
+    },
+]
+
+
 def capability_status(capability: dict[str, object], mode: str, text: str) -> tuple[str, str]:
     lowered = text.lower()
     keywords = capability["keywords"]  # type: ignore[assignment]
@@ -126,6 +206,21 @@ def capability_status(capability: dict[str, object], mode: str, text: str) -> tu
     if status == "recommended":
         return status, f"This capability is usually expected in {mode} mode even if not stated explicitly."
     return status, "This capability is useful but not necessarily needed in the first version."
+
+
+def is_caseflow_service(text: str) -> bool:
+    lowered = text.lower()
+    signals = [
+        "case management",
+        "workflow platform",
+        "approval",
+        "evidence",
+        "queue",
+        "sla",
+        "spring boot",
+        "concentric",
+    ]
+    return sum(1 for signal in signals if signal in lowered) >= 4
 
 
 def format_inventory(mode: str, rationale: str, text: str) -> str:
@@ -148,8 +243,20 @@ def format_inventory(mode: str, rationale: str, text: str) -> str:
         "",
     ]
 
-    for capability in CAPABILITIES:
-        status, why_now = capability_status(capability, mode, text)
+    capabilities = CAPABILITIES
+    if mode == "product-service" and is_caseflow_service(text):
+        capabilities = SERVICE_CAPABILITIES
+
+    for capability in capabilities:
+        if capabilities is SERVICE_CAPABILITIES:
+            status = "required" if any(keyword in text.lower() for keyword in capability["keywords"]) else "recommended"
+            why_now = (
+                "The design/context already mentions this service capability explicitly."
+                if status == "required"
+                else "This capability is a natural follow-on for the first backend platform slices."
+            )
+        else:
+            status, why_now = capability_status(capability, mode, text)
         lines.extend(
             [
                 f"### {capability['name']}",

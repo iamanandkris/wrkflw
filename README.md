@@ -18,6 +18,7 @@
 - `wrkflw:assign`
 - `wrkflw:challenge`
 - `wrkflw:review-sync`
+- `wrkflw:team-sync`
 - `wrkflw:team-run`
 
 It also supports:
@@ -240,6 +241,9 @@ Team control commands:
   - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
 - `wrkflw:review-sync`
   - resynchronize workflow state and execution-board review notes from `review-log.md`
+- `wrkflw:team-sync`
+  - record delegated role progress such as implementer completion, reviewer start, or handoff notes
+  - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, and implementation-plan context from that role update
 - all team commands also append an entry to `team-minutes.md` so the collaboration trail stays readable
 - `wrkflw:team-run`
   - generate `.workflow/<slug>/team-dispatch.md`
@@ -253,6 +257,7 @@ wrkflw:staff "team size: 5; parallel slots: 2; Implementer 2: own UI slice"
 wrkflw:assign "Implementer 1: schema and fixtures; Reviewer QA: regression and acceptance review"
 wrkflw:challenge "role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete"
 wrkflw:review-sync "Reviewer QA and Product Owner evidence recorded"
+wrkflw:team-sync "role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane"
 wrkflw:team-run "Dispatch the active story with parallel implementer lanes"
 ```
 
@@ -266,6 +271,9 @@ Expected sequence:
 - `wrkflw` generates dispatch packets under:
   - `.workflow/<slug>/team-dispatch.md`
   - `.workflow/<slug>/dispatch/*.md`
+- as delegated role work returns, record the lane outcome with `wrkflw:team-sync`
+- apply `wrkflw:team-sync` updates sequentially rather than in parallel, because they update shared workflow coordination files
+- `wrkflw:team-sync` can infer role/status from pasted agent output when the output is clear, but explicit `role:` and `status:` remain safer
 - Codex can then spawn the role agents from those packets:
   - `Product Owner`
   - `Tech Lead`
@@ -283,6 +291,7 @@ Current limit:
 - the Python plugin scripts generate the dispatch contract and packets
 - actual `spawn_agent` calls happen in Codex when `wrkflw:team-run` is invoked, not inside the Python scripts themselves
 - parallel implementer lanes must have explicit, disjoint `Allowed Write Paths` in `agent-assignments.md` or `wrkflw:team-run` will block
+- delegated role completion should be fed back through `wrkflw:team-sync` so execution-board status, team minutes, diagrams, and implementation-plan context stay current
 
 ### Diagram history and compact vs expanded views
 

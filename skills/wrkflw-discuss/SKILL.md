@@ -38,6 +38,7 @@ Also treat these as workflow control intents:
 - `wrkflw:challenge "..."`
 - `wrkflw:review-sync "..."`
 - `wrkflw:team-run "..."`
+- `wrkflw:team-sync "..."`
 
 ## Behavior
 
@@ -130,6 +131,7 @@ Team execution model:
 - `wrkflw:assign` should update per-epic role ownership in `agent-assignments.md`
 - `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
 - `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
+- `wrkflw:team-sync` should synchronize delegated role outcomes such as implementer completion, reviewer start, handoff notes, and lane status back into `execution-board.md`, `agent-assignments.md`, and `team-minutes.md`
 - team-control commands should also append readable minutes to `team-minutes.md` so the collaboration history is explicit
 - `wrkflw:team-run` should generate a delegated execution packet set and, when the user has explicitly asked for multi-agent execution, use those packets to spawn real role agents
 
@@ -170,7 +172,7 @@ To update an existing workflow state after approval or rejection, use the compan
 Preferred command handler:
 
 ```text
-python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync|team-run> [--reason "..."] [--items "..."] [--design-file <path>]
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync|team-run|team-sync> [--reason "..."] [--items "..."] [--design-file <path>]
 ```
 
 Behavior expectations:
@@ -221,6 +223,9 @@ Behavior expectations:
 - `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
 - `wrkflw:team-run "..."` should only activate when the workflow already has an active story and is at `implementation-planning`, `implementation`, or `review`.
 - when `wrkflw:team-run` is used, first run the command handler so `.workflow/<slug>/team-dispatch.md` and `.workflow/<slug>/dispatch/*.md` are generated.
+- after each delegated role returns, run `wrkflw:team-sync` with structured status updates such as `role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane`.
+- apply `wrkflw:team-sync` updates sequentially, not in parallel, because they all rewrite the same workflow coordination artifacts.
+- when the returned agent output already clearly states what changed or that no serious findings remain, `wrkflw:team-sync` may infer role/status from that pasted output, but explicit `role` and `status` are still preferred.
 - after the dispatch packets are generated, use Codex delegated agents to enact the team model:
   - `Product Owner`: use a `default` agent for scope/acceptance challenge
   - `Tech Lead`: use a `default` agent for decomposition/integration guidance
@@ -230,7 +235,7 @@ Behavior expectations:
 - do not spawn implementer lanes in parallel unless ownership is clearly disjoint in `agent-assignments.md`.
 - `wrkflw:team-run` should hard-block when parallel implementer lanes are enabled but their `Allowed Write Paths` are missing or overlap.
 - prefer spawning Product Owner and Tech Lead in parallel with implementer work only when their tasks are not blocking the next step.
-- after delegated work returns, synchronize evidence back into `execution-board.md` and `review-log.md`, then use the normal `wrkflw` commands to advance or block the workflow.
+- after delegated work returns, use `wrkflw:team-sync` for role and handoff status, use `wrkflw:challenge` / `wrkflw:review-sync` for review evidence, then use the normal `wrkflw` commands to advance or block the workflow.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
 - Keep OpenSpec execution single-lane by default at the initiative level: one epic workflow may own the active OpenSpec lane at a time, while other epics remain workflow-only until they reach their own active `spec-authoring` pass.
