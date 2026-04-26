@@ -95,6 +95,52 @@ CONTRACT_FIELDS = [
     "OpenSpec waiver reason",
 ]
 
+STAGE_ALIASES = {
+    "epic-shaped": "epic-shaping",
+    "epic shaped": "epic-shaping",
+    "story-sliced": "story-slicing",
+    "story sliced": "story-slicing",
+    "story-enriched": "story-enrichment",
+    "story enriched": "story-enrichment",
+    "implementation-planned": "implementation-planning",
+    "implementation planned": "implementation-planning",
+}
+
+GATE_STATUS_ALIASES = {
+    "awaiting approval": "pending",
+    "awaiting epic and story approval": "pending",
+    "awaiting story approval": "pending",
+    "awaiting review": "pending",
+    "approved": "approved",
+    "pending": "pending",
+    "blocked": "blocked",
+    "rejected": "rejected",
+}
+
+
+def normalize_stage_name(value: str) -> str:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return ""
+    if cleaned in STAGE_ORDER:
+        return cleaned
+    return STAGE_ALIASES.get(cleaned, cleaned)
+
+
+def normalize_gate_status(value: str) -> str:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return ""
+    return GATE_STATUS_ALIASES.get(cleaned, cleaned)
+
+
+def normalize_state_dict(state: dict[str, str]) -> dict[str, str]:
+    normalized = dict(state)
+    normalized["Current stage"] = normalize_stage_name(normalized.get("Current stage", ""))
+    normalized["Human gate status"] = normalize_gate_status(normalized.get("Human gate status", ""))
+    normalized["Rework target"] = normalize_stage_name(normalized.get("Rework target", ""))
+    return normalized
+
 
 def parse_state(path: Path) -> dict[str, str]:
     state = {field: "" for field in STATE_FIELDS}
@@ -106,10 +152,11 @@ def parse_state(path: Path) -> dict[str, str]:
         key, _, value = line[2:].partition(":")
         if key in state:
             state[key] = value.strip()
-    return state
+    return normalize_state_dict(state)
 
 
 def write_state(path: Path, state: dict[str, str]) -> None:
+    state = normalize_state_dict(state)
     lines = ["# State", ""]
     for field in STATE_FIELDS:
         lines.append(f"- {field}: {state.get(field, '').strip()}")

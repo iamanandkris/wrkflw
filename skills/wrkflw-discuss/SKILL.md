@@ -76,6 +76,29 @@ State should capture:
 - rejection reason
 - next action
 
+Canonical state rules:
+- `state.md` is the required source of truth for current workflow status
+- `history.md` is the required source of truth for completed progression trail
+- `diagram-flow.puml` and `diagram-work.puml` are derived artifacts and must be regenerated after each workflow state change
+- `Current stage` must use canonical stage values only:
+  - `discuss`
+  - `capability-review`
+  - `epic-shaping`
+  - `story-slicing`
+  - `story-enrichment`
+  - `spec-authoring`
+  - `implementation-planning`
+  - `implementation`
+  - `review`
+  - `release-planning`
+  - `done`
+- `Human gate status` must use canonical values only:
+  - `pending`
+  - `approved`
+  - `blocked`
+  - `rejected`
+- do not write freeform substitutes such as `epic-shaped`, `story-sliced`, or `awaiting approval` into `state.md`
+
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
 - the capability categories the workflow should consider before writing narrow stories too early

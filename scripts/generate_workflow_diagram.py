@@ -31,6 +31,60 @@ GATED_STAGES = {
     "release-planning",
 }
 
+GATE_STATES = {"pending", "approved", "blocked", "rejected"}
+
+STAGE_ALIASES_MAP = {
+    "epic-shaped": "epic-shaping",
+    "epic shaped": "epic-shaping",
+    "story-sliced": "story-slicing",
+    "story sliced": "story-slicing",
+    "story-enriched": "story-enrichment",
+    "story enriched": "story-enrichment",
+    "implementation-planned": "implementation-planning",
+    "implementation planned": "implementation-planning",
+}
+
+GATE_STATUS_ALIASES = {
+    "awaiting approval": "pending",
+    "awaiting epic and story approval": "pending",
+    "awaiting story approval": "pending",
+    "awaiting review": "pending",
+}
+
+
+def normalize_stage_name(value: str) -> str:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return ""
+    if cleaned in STAGES:
+        return cleaned
+    return STAGE_ALIASES_MAP.get(cleaned, cleaned)
+
+
+def normalize_gate_status(value: str) -> str:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return ""
+    if cleaned in GATE_STATES:
+        return cleaned
+    return GATE_STATUS_ALIASES.get(cleaned, cleaned)
+
+
+def normalize_state(state: dict[str, str]) -> dict[str, str]:
+    normalized = dict(state)
+    normalized["Current stage"] = normalize_stage_name(normalized.get("Current stage", ""))
+    normalized["Human gate status"] = normalize_gate_status(normalized.get("Human gate status", ""))
+    normalized["Rework target"] = normalize_stage_name(normalized.get("Rework target", ""))
+    return normalized
+
+
+def normalize_event(event: dict[str, str]) -> dict[str, str]:
+    normalized = dict(event)
+    normalized["From stage"] = normalize_stage_name(normalized.get("From stage", ""))
+    normalized["To stage"] = normalize_stage_name(normalized.get("To stage", ""))
+    normalized["Gate"] = normalize_gate_status(normalized.get("Gate", ""))
+    return normalized
+
 
 def parse_kv_list(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
@@ -52,13 +106,13 @@ def parse_history(path: Path) -> list[dict[str, str]]:
         line = raw_line.rstrip()
         if line.startswith("## Event "):
             if current is not None:
-                events.append(current)
+                events.append(normalize_event(current))
             current = {}
         elif current is not None and line.startswith("- "):
             key, _, value = line[2:].partition(":")
             current[key.strip()] = value.strip()
     if current is not None:
-        events.append(current)
+        events.append(normalize_event(current))
     return events
 
 
@@ -73,6 +127,10 @@ def parse_gate_settings(path: Path) -> dict[str, bool]:
         value = raw.get(f"{stage}.autoApprove", "false").strip().lower()
         settings[stage] = value in {"true", "1", "yes", "on"}
     return settings
+
+
+def parse_state(path: Path) -> dict[str, str]:
+    return normalize_state(parse_kv_list(path))
 
 
 def parse_diagram_config(path: Path) -> dict[str, str]:
@@ -862,7 +920,7 @@ def main() -> int:
 
     root = Path(args.root).resolve()
     wf = root / ".workflow" / args.slug
-    state = parse_kv_list(wf / "state.md")
+    state = parse_state(wf / "state.md")
     links = parse_kv_list(wf / "links.md")
     stories = parse_story_entries(read_text(wf / "stories.md"))
     openspec_change = links.get("OpenSpec change", "")

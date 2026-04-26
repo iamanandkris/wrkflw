@@ -136,6 +136,29 @@ including:
 - `diagram-flow.puml`
 - `diagram-work.puml`
 
+State contract:
+- `state.md` is the source of truth for current workflow status
+- `history.md` is the source of truth for completed progression trail
+- `diagram-flow.puml` and `diagram-work.puml` are derived artifacts and should be regenerated after each workflow state change
+- `Current stage` must use only:
+  - `discuss`
+  - `capability-review`
+  - `epic-shaping`
+  - `story-slicing`
+  - `story-enrichment`
+  - `spec-authoring`
+  - `implementation-planning`
+  - `implementation`
+  - `review`
+  - `release-planning`
+  - `done`
+- `Human gate status` must use only:
+  - `pending`
+  - `approved`
+  - `blocked`
+  - `rejected`
+- avoid freeform labels like `epic-shaped`, `story-sliced`, or `awaiting approval`
+
 When a broader design is present, `wrkflw` also creates shared normalization artifacts under:
 
 ```text
