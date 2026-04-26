@@ -23,6 +23,7 @@ Also treat these as workflow control intents:
 - `wrkflw:approve`
 - `wrkflw:approve "..."`
 - `wrkflw:reject "..."`
+- `wrkflw:reconcile "..."`
 - `wrkflw:rework "..."`
 - `wrkflw:refine "..."`
 - `wrkflw:rework-item "..."`
@@ -43,8 +44,9 @@ Also treat these as workflow control intents:
 7. Recommend the next tool and mode.
 8. Stop at human approval gates.
 9. If useful, initialize a local workflow workspace in the current repo.
-10. If a gate is rejected, record the rejection and route work back to the right prior stage.
-11. When the user issues `wrkflw:approve`, `wrkflw:reject`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
+10. Detect when repository evidence shows the implementation is ahead of workflow metadata or OpenSpec artifacts, and classify that state as workflow artifact drift instead of normal forward progression.
+11. If a gate is rejected, record the rejection and route work back to the right prior stage.
+12. When the user issues `wrkflw:approve`, `wrkflw:reject`, `wrkflw:reconcile`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
 
 ## Workspace Convention
 
@@ -116,6 +118,14 @@ Behavior expectations:
 - `wrkflw:discuss` should summarize the current implementation shape, capability coverage, and obvious gaps before story slicing.
 - `wrkflw:discuss` should reconcile observed code with the design seed or design document and surface conflicts explicitly before moving into epic shaping or story slicing.
 - `wrkflw:discuss` should use the design seed as the primary planning input after the initial codebase reconnaissance, instead of relying only on the user’s one-line summary.
+- `wrkflw:discuss` should distinguish between:
+  - code vs design drift
+  - code vs workflow metadata drift
+  - code vs OpenSpec artifact drift
+- if the codebase is materially ahead of `.workflow/...` or `openspec/changes/...`, `wrkflw:discuss` should classify the situation as workflow artifact drift or reconciliation work, not as normal feature planning.
+- when workflow artifact drift is detected, `wrkflw:discuss` should recommend reconciling workflow metadata and OpenSpec with implemented reality before proposing a new epic or new capability stories.
+- when the active story context is still valid and only the OpenSpec change is stale, `wrkflw:discuss` should recommend `wrkflw:openspec-sync`.
+- when the broader workflow state itself is stale, `wrkflw:discuss` should recommend `wrkflw:reconcile "Reconcile workflow metadata and OpenSpec with implemented repo state"` before any new forward-planning step.
 - `wrkflw:discuss` should also create or refresh `.workflow/<slug>/capabilities.md` so story slicing starts from capability categories instead of only the first obvious implementation slice.
 - `wrkflw` should stop at a dedicated capability-review gate after `discuss` so the user can approve, reject, or refine the generated capability inventory before epic shaping continues.
 - entering `story-slicing` should regenerate `.workflow/<slug>/stories.md` from `.workflow/<slug>/capabilities.md` so the story plan reflects the reviewed capability inventory instead of stale generic slices.
@@ -129,6 +139,7 @@ Behavior expectations:
 - `wrkflw:approve "..."` should also record why the stage was accepted.
 - `wrkflw:reject "..."` should record the reason, set the rework target, and move the workflow back to the nearest prior stage that can address the feedback.
 - `wrkflw:next` should advance non-gated stages or report that a human gate is still pending.
+- `wrkflw:reconcile "..."` should keep the workflow at the current stage, record that repository evidence is ahead of the workflow or OpenSpec artifacts, and set the next action to reconcile artifacts before new planning continues.
 - `wrkflw:rework "..."` should behave like a targeted rejection/revision trigger.
 - `wrkflw:refine "..."` should keep the workflow at the current stage, record the refinement request, and update the next action without treating it as a hard rejection.
 - `wrkflw:rework-item "..."` should keep the workflow at the current stage, mark the named epic item or story for targeted rework, and update the next action accordingly.

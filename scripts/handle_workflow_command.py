@@ -556,6 +556,23 @@ def handle_refine(
     return state
 
 
+def handle_reconcile(
+    state: dict[str, str],
+    reason: str,
+) -> dict[str, str]:
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    state["Current stage"] = current
+    state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
+    state["Rework target"] = current
+    state["Rejection reason"] = ""
+    state["Approval note"] = ""
+    state["Blocked reason"] = ""
+    state["Item note"] = "workflow artifact reconciliation requested"
+    state["Challenge note"] = ""
+    state["Next action"] = f"reconcile workflow metadata and OpenSpec artifacts with implemented repo state: {reason}".strip()
+    return state
+
+
 def merge_csv(existing: str, new_items: str) -> str:
     values: list[str] = []
     seen: set[str] = set()
@@ -672,10 +689,10 @@ def handle_override(state: dict[str, str], reason: str, root: Path, workflow_slu
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, rework, refine, rework-item, proceed-only, defer, next, and override.")
+    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, and override.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -702,6 +719,8 @@ def main() -> int:
         state = handle_approve_with_reason(state, args.reason, root, args.slug)
     elif args.command in {"reject", "rework"}:
         state = handle_reject(state, args.reason or "feedback not provided")
+    elif args.command == "reconcile":
+        state = handle_reconcile(state, args.reason or "repository evidence is ahead of workflow or OpenSpec artifacts")
     elif args.command == "refine":
         state = handle_refine(state, args.reason or "refinement requested", root, args.slug)
     elif args.command == "rework-item":
