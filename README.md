@@ -17,6 +17,7 @@
 
 It also supports:
 - design seed detection from `design.md` or `docs/design.md`
+- normalization of broad design documents into workflow-ready design artifacts
 - automatic OpenSpec handoff during `spec-authoring`
 - workflow state and PlantUML diagram generation under `.workflow/<slug>/`
 - release-plan generation and OpenSpec archive on story closeout
@@ -106,6 +107,8 @@ wrkflw:discuss "Start this workflow from the design in docs/design.md"
 
 If the repo contains `design.md` or `docs/design.md`, `wrkflw` will use that as a seed automatically.
 
+If the design document is broad or not already workflow-shaped, `wrkflw` first generates normalized planning artifacts and an epic-specific design slice before it uses the design for workflow shaping.
+
 The workflow creates artifacts under:
 
 ```text
@@ -121,9 +124,20 @@ including:
 - `gates.md`
 - `diagram-config.md`
 - `workflow-contract.md`
+- `design-slice.md` when the workflow is seeded from a broader design source
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
 - `diagram-work.puml`
+
+When a broader design is present, `wrkflw` also creates shared normalization artifacts under:
+
+```text
+.workflow/_normalized/
+```
+
+including:
+- `master-design.md`
+- `epic-candidates.md`
 
 ### Diagram history and compact vs expanded views
 
