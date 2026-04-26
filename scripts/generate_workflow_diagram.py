@@ -184,6 +184,15 @@ def parse_review_log_summary(wf: Path) -> tuple[int, str]:
     return count, ", ".join(roles) if roles else "-"
 
 
+def parse_runtime_contract(wf: Path) -> dict[str, str]:
+    values = parse_kv_list(wf / "runtime-contract.md")
+    return {
+        "Runtime mode": values.get("Runtime mode", "-").strip() or "-",
+        "Delegated execution ready": values.get("Delegated execution ready", "-").strip() or "-",
+        "Recorded review roles": values.get("Recorded review roles", "-").strip() or "-",
+    }
+
+
 def workflow_contract(path: Path) -> dict[str, str]:
     raw = parse_kv_list(path)
     return {
@@ -750,6 +759,7 @@ def write_flow_diagram(
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
     review_count, review_roles = parse_review_log_summary(wf)
+    runtime = parse_runtime_contract(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
@@ -808,6 +818,8 @@ def write_flow_diagram(
             f"OpenSpec initialized: {contract.get('OpenSpec initialized', '-') or '-'}",
             f"Team size: {team.get('Team size', '-') or '-'}",
             f"Parallel slots: {team.get('Parallel implementation slots', '-') or '-'}",
+            f"Runtime mode: {runtime.get('Runtime mode', '-') or '-'}",
+            f"Delegated ready: {runtime.get('Delegated execution ready', '-') or '-'}",
             f"Next: {state.get('Next action', '-') or '-'}",
             "end note",
             "note right of epic_shaping",
@@ -824,6 +836,7 @@ def write_flow_diagram(
             f"Owner: {board.get('Active owner', '-') or '-'}",
             f"Handoff: {board.get('Current handoff', '-') or '-'}",
             f"Review entries: {review_count} ({review_roles})",
+            f"Runtime review roles: {runtime.get('Recorded review roles', '-') or '-'}",
             *active_task_lines,
             "end note",
             *story_flow_notes(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
@@ -843,6 +856,7 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
     review_count, review_roles = parse_review_log_summary(wf)
+    runtime = parse_runtime_contract(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
@@ -894,6 +908,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Team size: {team.get("Team size", "-") or "-"}',
         f'  Parallel slots: {team.get("Parallel implementation slots", "-") or "-"}',
+        f'  Runtime mode: {runtime.get("Runtime mode", "-") or "-"}',
+        f'  Delegated ready: {runtime.get("Delegated execution ready", "-") or "-"}',
         f'  Active owner: {board.get("Active owner", "-") or "-"}',
         f'  Current handoff: {board.get("Current handoff", "-") or "-"}',
         f'  Review entries: {review_count} ({review_roles})',

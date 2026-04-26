@@ -87,6 +87,14 @@ def parse_execution_board(path: Path) -> dict[str, str]:
     return board
 
 
+def parse_runtime_contract(path: Path) -> dict[str, str]:
+    values = parse_kv_list(path)
+    return {
+        "Runtime mode": values.get("Runtime mode", "-").strip() or "-",
+        "Delegated execution ready": values.get("Delegated execution ready", "-").strip() or "-",
+    }
+
+
 def implementation_slots(settings: dict[str, str]) -> int:
     raw = settings.get("Parallel implementation slots", "1").strip()
     try:
@@ -132,6 +140,7 @@ def main() -> int:
     risks = list(story.get("Risks") or [])
     team = parse_team_settings(root, args.slug)
     board = parse_execution_board(workflow_dir / "execution-board.md")
+    runtime = parse_runtime_contract(workflow_dir / "runtime-contract.md")
 
     included = first_n(tests, 3) or first_n(acceptance, 3) or [scope]
     deferred = remaining(tests, 3) + remaining(acceptance, 3)
@@ -153,6 +162,8 @@ def main() -> int:
         "## Team Execution Context",
         f"- Team size: {team.get('Team size', '-') or '-'}",
         f"- Parallel implementation slots: {team.get('Parallel implementation slots', '-') or '-'}",
+        f"- Runtime mode: {runtime.get('Runtime mode', '-') or '-'}",
+        f"- Delegated execution ready: {runtime.get('Delegated execution ready', '-') or '-'}",
         f"- Active owner from execution board: {board.get('Active owner', '-') or '-'}",
         f"- Current handoff: {board.get('Current handoff', '-') or '-'}",
         "",

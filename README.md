@@ -14,6 +14,10 @@
 - `wrkflw:defer`
 - `wrkflw:override`
 - `wrkflw:next`
+- `wrkflw:staff`
+- `wrkflw:assign`
+- `wrkflw:challenge`
+- `wrkflw:review-sync`
 
 It also supports:
 - design seed detection from `design.md` or `docs/design.md`
@@ -135,6 +139,7 @@ including:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `runtime-contract.md`
 - `design-slice.md` when the workflow is seeded from a broader design source
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
@@ -206,6 +211,7 @@ Each workflow lane also gets:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `runtime-contract.md`
 
 These are intended to model a small engineering team where design, coding, and challenge/review are separated instead of letting every agent write to everything.
 
@@ -215,6 +221,26 @@ Current behavioral integration:
 - `review-log.md` is used for late-stage challenge/signoff checks:
   - `Reviewer QA` evidence is required before `release-planning` when reviewer signoff is enabled
   - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
+- `runtime-contract.md` records the current file-driven team runtime contract and prepares the workflow for future delegated-agent execution without claiming automatic spawning today
+
+Team control commands:
+- `wrkflw:staff`
+  - update team size, parallel slots, and role override notes in `team-config.md` or `team-overrides.md`
+- `wrkflw:assign`
+  - update `agent-assignments.md` with role ownership for the active workflow lane
+- `wrkflw:challenge`
+  - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
+- `wrkflw:review-sync`
+  - resynchronize workflow state and execution-board review notes from `review-log.md`
+
+Suggested formats:
+
+```text
+wrkflw:staff "team size: 5; parallel slots: 2; Implementer 2: own UI slice"
+wrkflw:assign "Implementer 1: schema and fixtures; Reviewer QA: regression and acceptance review"
+wrkflw:challenge "role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete"
+wrkflw:review-sync "Reviewer QA and Product Owner evidence recorded"
+```
 
 ### Diagram history and compact vs expanded views
 

@@ -543,6 +543,175 @@ def parse_markdown_table_rows(path: Path) -> list[list[str]]:
     return rows
 
 
+def replace_or_append_bullet(path: Path, key: str, value: str) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    target = f"- {key}:"
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.startswith(target):
+            lines[index] = f"{target} {value}"
+            replaced = True
+            break
+    if not replaced:
+        insert_at = 2 if len(lines) >= 2 else len(lines)
+        lines.insert(insert_at, f"{target} {value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def replace_or_append_role_line(path: Path, role: str, value: str) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    target = f"- {role}:"
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.startswith(target):
+            lines[index] = f"{target} {value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{target} {value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def parse_directives(raw: str | None) -> dict[str, str]:
+    if not raw or not raw.strip():
+        return {}
+    segments = [segment.strip() for segment in re.split(r"[;\n]+", raw) if segment.strip()]
+    directives: dict[str, str] = {}
+    parsed_any = False
+    for segment in segments:
+        if ":" in segment:
+            key, value = segment.split(":", 1)
+        elif "=" in segment:
+            key, value = segment.split("=", 1)
+        else:
+            continue
+        parsed_any = True
+        directives[key.strip().lower()] = value.strip()
+    if not parsed_any:
+        directives["note"] = raw.strip()
+    return directives
+
+
+def canonical_role_name(value: str) -> str:
+    cleaned = value.strip().lower()
+    aliases = {
+        "product owner": "Product Owner",
+        "po": "Product Owner",
+        "tech lead": "Tech Lead",
+        "tl": "Tech Lead",
+        "implementer": "Implementer 1",
+        "implementer 1": "Implementer 1",
+        "implementer1": "Implementer 1",
+        "implementer-1": "Implementer 1",
+        "implementer 2": "Implementer 2",
+        "implementer2": "Implementer 2",
+        "implementer-2": "Implementer 2",
+        "reviewer qa": "Reviewer QA",
+        "reviewer": "Reviewer QA",
+        "qa": "Reviewer QA",
+    }
+    return aliases.get(cleaned, value.strip())
+
+
+def role_slot(role: str) -> str:
+    return {
+        "Product Owner": "product-owner",
+        "Tech Lead": "tech-lead",
+        "Implementer 1": "implementer-1",
+        "Implementer 2": "implementer-2",
+        "Reviewer QA": "reviewer-qa",
+    }.get(role, re.sub(r"[^a-z0-9]+", "-", role.strip().lower()).strip("-"))
+
+
+def team_role_directives(directives: dict[str, str]) -> dict[str, str]:
+    role_updates: dict[str, str] = {}
+    for key, value in directives.items():
+        role = canonical_role_name(key)
+        if role in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
+            role_updates[role] = value
+    return role_updates
+
+
+def parse_assignment_rows(path: Path) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for parts in parse_markdown_table_rows(path):
+        if len(parts) < 5:
+            continue
+        rows[parts[0]] = {
+            "Role": parts[0],
+            "Slot": parts[1],
+            "Responsibility Focus": parts[2],
+            "Default Ownership": parts[3],
+            "Status": parts[4],
+        }
+    return rows
+
+
+def write_assignment_rows(path: Path, workflow_slug: str, rows: dict[str, dict[str, str]]) -> None:
+    order = ["Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"]
+    output = [
+        "# Agent Assignments",
+        "",
+        f"- Workflow slug: {workflow_slug}",
+        "- Team config source: `.workflow/team-config.md`",
+        f"- Override source: `.workflow/{workflow_slug}/team-overrides.md`",
+        "",
+        "| Role | Slot | Responsibility Focus | Default Ownership | Status |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for role in order:
+        row = rows.get(role)
+        if not row:
+            continue
+        output.append(
+            f"| {row['Role']} | {row['Slot']} | {row['Responsibility Focus']} | {row['Default Ownership']} | {row['Status']} |"
+        )
+    output.extend(
+        [
+            "",
+            "## Assignment Rules",
+            "",
+            "- Do not let every role write to every file.",
+            "- Treat workflow/OpenSpec/design artifacts as the shared contract.",
+            "- Keep implementer ownership disjoint when parallel implementation slots are greater than 1.",
+            "",
+        ]
+    )
+    path.write_text("\n".join(output), encoding="utf-8")
+
+
+def append_review_log_entry(
+    path: Path,
+    role: str,
+    severity: str,
+    finding: str,
+    resolution: str,
+) -> None:
+    text = path.read_text(encoding="utf-8") if path.exists() else "# Review Log\n\n## Findings\n\n| Date | Role | Severity | Finding | Resolution |\n| --- | --- | --- | --- | --- |\n"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    date_value = datetime.now(timezone.utc).date().isoformat()
+    entry = f"| {date_value} | {role} | {severity} | {finding} | {resolution} |\n"
+    path.write_text(text + entry, encoding="utf-8")
+
+
+def update_execution_review_row(path: Path, reviewer: str, notes: str) -> None:
+    if not path.exists():
+        return
+    lines: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line
+        if line.startswith("| Review and challenge |"):
+            parts = [part.strip() for part in line.strip().strip("|").split("|")]
+            while len(parts) < 6:
+                parts.append("")
+            parts[4] = reviewer
+            parts[5] = notes
+            line = "| " + " | ".join(parts) + " |"
+        lines.append(line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) -> None:
     board_path = root / ".workflow" / workflow_slug / "execution-board.md"
     if not board_path.exists():
@@ -622,6 +791,27 @@ def review_log_roles(path: Path) -> set[str]:
     return roles
 
 
+def sync_runtime_contract(root: Path, workflow_slug: str, state: dict[str, str]) -> None:
+    runtime_path = root / ".workflow" / workflow_slug / "runtime-contract.md"
+    if not runtime_path.exists():
+        return
+    board = parse_kv_list(root / ".workflow" / workflow_slug / "execution-board.md")
+    roles = sorted(review_log_roles(root / ".workflow" / workflow_slug / "review-log.md"))
+    replace_or_append_bullet(runtime_path, "Active story", active_story_name(state) or "-")
+    replace_or_append_bullet(runtime_path, "Active owner", board.get("Active owner", "-") or "-")
+    replace_or_append_bullet(runtime_path, "Current handoff", board.get("Current handoff", "-") or "-")
+    replace_or_append_bullet(
+        runtime_path,
+        "Delegated execution ready",
+        "true" if parse_team_settings(root, workflow_slug).get("Team mode", "").strip() == "multi-agent-engineering-team" else "false",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Recorded review roles",
+        ", ".join(roles) if roles else "-",
+    )
+
+
 def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
     settings = parse_team_settings(root, workflow_slug)
     review_roles = review_log_roles(root / ".workflow" / workflow_slug / "review-log.md")
@@ -632,6 +822,164 @@ def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool,
     if stage == "done" and po_required and "Product Owner" not in review_roles:
         return True, "Product Owner signoff is missing in review-log.md for this story."
     return False, ""
+
+
+def handle_staff(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    directive_text: str,
+    scope: str | None,
+) -> dict[str, str]:
+    directives = parse_directives(directive_text)
+    override_path = root / ".workflow" / workflow_slug / "team-overrides.md"
+    config_path = root / ".workflow" / "team-config.md"
+    applied: list[str] = []
+
+    team_size = directives.get("team size") or directives.get("team size override")
+    parallel = (
+        directives.get("parallel implementation slots")
+        or directives.get("parallel implementation slots override")
+        or directives.get("parallel slots")
+    )
+    notes = directives.get("notes") or directives.get("note")
+    role_updates = team_role_directives(directives)
+
+    if scope and scope.strip().lower() == "initiative":
+        if team_size:
+            replace_or_append_bullet(config_path, "Team size", team_size)
+            applied.append(f"initiative team size={team_size}")
+        if parallel:
+            replace_or_append_bullet(config_path, "Parallel implementation slots", parallel)
+            applied.append(f"initiative parallel slots={parallel}")
+    else:
+        if team_size:
+            replace_or_append_bullet(override_path, "Team size override", team_size)
+            applied.append(f"team size override={team_size}")
+        if parallel:
+            replace_or_append_bullet(override_path, "Parallel implementation slots override", parallel)
+            applied.append(f"parallel slots override={parallel}")
+        if notes:
+            replace_or_append_bullet(override_path, "Notes", notes)
+            applied.append("team notes updated")
+
+    for role, value in role_updates.items():
+        replace_or_append_role_line(override_path, role, value)
+        applied.append(f"{role} override updated")
+
+    if not applied and directive_text.strip():
+        replace_or_append_bullet(override_path, "Notes", directive_text.strip())
+        applied.append("team notes updated")
+
+    state["Item note"] = "staffing updated: " + ", ".join(applied) if applied else "staffing reviewed with no changes"
+    if state.get("Human gate status") == "blocked":
+        blocked_reason = state.get("Blocked reason", "").strip() or "active workflow block"
+        state["Next action"] = f"resolve the current workflow block before continuing: {blocked_reason}"
+    else:
+        state["Challenge note"] = ""
+        state["Next action"] = "review the updated team configuration and continue with the current workflow lane"
+    if ensure_stage(state.get("Current stage") or "discuss") == "implementation-planning":
+        maybe_generate_implementation_plan(root, workflow_slug)
+    return state
+
+
+def handle_assign(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    directive_text: str,
+) -> dict[str, str]:
+    directives = parse_directives(directive_text)
+    assignments_path = root / ".workflow" / workflow_slug / "agent-assignments.md"
+    rows = parse_assignment_rows(assignments_path)
+    applied: list[str] = []
+
+    for role, value in team_role_directives(directives).items():
+        row = rows.get(role, {
+            "Role": role,
+            "Slot": role_slot(role),
+            "Responsibility Focus": value,
+            "Default Ownership": "assigned scope only",
+            "Status": "assigned",
+        })
+        row["Responsibility Focus"] = value
+        row["Status"] = "assigned"
+        rows[role] = row
+        applied.append(f"{role} assigned")
+
+    if directives.get("default ownership"):
+        for role in ["Implementer 1", "Implementer 2"]:
+            if role in rows:
+                rows[role]["Default Ownership"] = directives["default ownership"]
+        applied.append("implementer ownership updated")
+
+    write_assignment_rows(assignments_path, workflow_slug, rows)
+    state["Item note"] = "assignments updated: " + ", ".join(applied) if applied else "assignments reviewed with no changes"
+    if state.get("Human gate status") == "blocked":
+        blocked_reason = state.get("Blocked reason", "").strip() or "active workflow block"
+        state["Next action"] = f"resolve the current workflow block before continuing: {blocked_reason}"
+    else:
+        state["Challenge note"] = ""
+        state["Next action"] = "execute or review the assigned ownership boundaries and keep handoffs explicit"
+    if ensure_stage(state.get("Current stage") or "discuss") == "implementation-planning":
+        maybe_generate_implementation_plan(root, workflow_slug)
+    return state
+
+
+def handle_challenge(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    directive_text: str,
+    role_hint: str | None,
+) -> dict[str, str]:
+    directives = parse_directives(directive_text)
+    role = canonical_role_name(directives.get("role", "") or (role_hint or "") or "Reviewer QA")
+    severity = directives.get("severity", "medium").strip() or "medium"
+    finding = directives.get("finding") or directives.get("note") or directive_text.strip() or "challenge raised"
+    resolution = directives.get("resolution", "").strip()
+    review_path = root / ".workflow" / workflow_slug / "review-log.md"
+    append_review_log_entry(review_path, role, severity, finding, resolution)
+    update_execution_review_row(root / ".workflow" / workflow_slug / "execution-board.md", role, finding)
+
+    state["Challenge note"] = f"{role} challenge ({severity}): {finding}"
+    state["Item note"] = f"challenge recorded by {role}"
+    if severity.lower() in {"high", "critical", "blocker"}:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = f"{role} raised a {severity} challenge: {finding}"
+        state["Next action"] = f"address the {role} challenge before continuing: {finding}"
+    else:
+        current = ensure_stage(state.get("Current stage") or "discuss")
+        if current in GATED_STAGES and state.get("Human gate status") != "blocked":
+            state["Human gate status"] = "pending"
+        state["Blocked reason"] = ""
+        state["Next action"] = f"review and respond to the {role} challenge: {finding}"
+    return state
+
+
+def handle_review_sync(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    note: str | None,
+) -> dict[str, str]:
+    review_path = root / ".workflow" / workflow_slug / "review-log.md"
+    roles = sorted(review_log_roles(review_path))
+    summary = ", ".join(roles) if roles else "none"
+    update_execution_review_row(
+        root / ".workflow" / workflow_slug / "execution-board.md",
+        summary,
+        note.strip() if note and note.strip() else f"review evidence recorded from: {summary}",
+    )
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    blocked, _ = team_review_block(root, workflow_slug, current)
+    if not blocked and state.get("Human gate status") == "blocked" and "signoff is missing in review-log.md" in state.get("Blocked reason", ""):
+        state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
+        state["Blocked reason"] = ""
+    state["Item note"] = f"review evidence synchronized: {summary}"
+    state["Challenge note"] = ""
+    state["Next action"] = "review evidence is synchronized; approve when the current gate is satisfied"
+    return state
 
 
 def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
@@ -1068,10 +1416,10 @@ def handle_override(state: dict[str, str], reason: str, root: Path, workflow_slu
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, and override.")
+    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, override, and team operations.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -1113,9 +1461,18 @@ def main() -> int:
         state = handle_next(state, root, args.slug)
     elif args.command == "override":
         state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
+    elif args.command == "staff":
+        state = handle_staff(state, root, args.slug, args.reason or args.items or "", args.items)
+    elif args.command == "assign":
+        state = handle_assign(state, root, args.slug, args.reason or args.items or "")
+    elif args.command == "challenge":
+        state = handle_challenge(state, root, args.slug, args.reason or args.items or "challenge raised", args.items)
+    elif args.command == "review-sync":
+        state = handle_review_sync(state, root, args.slug, args.reason)
 
     write_state(state_path, state)
     sync_execution_board(root, args.slug, state)
+    sync_runtime_contract(root, args.slug, state)
     update_initiative_index(root, args.slug, state)
     append_history_event(root, args.slug, args.command, before_state, state)
     run(

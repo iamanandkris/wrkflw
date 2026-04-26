@@ -116,7 +116,8 @@ def default_agent_assignments(slug: str) -> str:
 | --- | --- | --- | --- | --- |
 | Product Owner | product-owner | design intent, scope, acceptance, sequencing | workflow and review artifacts only | planned |
 | Tech Lead | tech-lead | architecture, decomposition, interfaces, handoffs | workflow artifacts and shared technical decisions | planned |
-| Implementer | implementer-1 | code and tests for the active slice | assigned code/tests only | planned |
+| Implementer 1 | implementer-1 | code and tests for the active slice | assigned code/tests only | planned |
+| Implementer 2 | implementer-2 | optional parallel code and tests for a second slice | assigned code/tests only | optional |
 | Reviewer QA | reviewer-qa | review, challenge, regression and test checks | review artifacts only | planned |
 
 ## Assignment Rules
@@ -171,6 +172,29 @@ def default_review_log(slug: str) -> str:
 """
 
 
+def default_runtime_contract(slug: str) -> str:
+    return f"""# Runtime Contract
+
+- Workflow slug: {slug}
+- Runtime mode: file-driven
+- Delegated execution ready: false
+- Spawn policy: no automatic agent spawning; explicit orchestration only
+- State authority: `scripts/handle_workflow_command.py`
+- Active story:
+- Active owner:
+- Current handoff:
+- Required shared inputs: design-slice.md, state.md, stories.md, execution-board.md, review-log.md, links.md, workflow-contract.md
+- Required shared outputs: code/tests/docs in assigned scope, review-log.md evidence, execution-board.md notes
+
+## Team Runtime Rules
+
+- Only the workflow orchestrator updates canonical `state.md`.
+- Product Owner and Reviewer QA provide challenge and signoff evidence through `review-log.md`.
+- Active role ownership and handoffs stay visible in `execution-board.md`.
+- This contract prepares the workflow for future delegated multi-agent execution without requiring it today.
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ensure team execution artifacts exist for a workflow.")
     parser.add_argument("--slug", required=True)
@@ -187,6 +211,7 @@ def main() -> int:
     write_if_missing(wf / "agent-assignments.md", default_agent_assignments(args.slug))
     write_if_missing(wf / "execution-board.md", default_execution_board(args.slug))
     write_if_missing(wf / "review-log.md", default_review_log(args.slug))
+    write_if_missing(wf / "runtime-contract.md", default_runtime_contract(args.slug))
     return 0
 
 

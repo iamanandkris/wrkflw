@@ -33,6 +33,10 @@ Also treat these as workflow control intents:
 - `wrkflw:override "..."`
 - `wrkflw:openspec-sync`
 - `wrkflw:next`
+- `wrkflw:staff "..."`
+- `wrkflw:assign "..."`
+- `wrkflw:challenge "..."`
+- `wrkflw:review-sync "..."`
 
 ## Behavior
 
@@ -115,9 +119,14 @@ Team execution model:
 - `agent-assignments.md` should declare who owns which role for the epic lane
 - `execution-board.md` should track current work items, owners, status, and blockers
 - `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
+- `runtime-contract.md` should record the file-driven runtime contract that keeps shared inputs, outputs, ownership, and state authority explicit
 - `wrkflw` should synchronize `execution-board.md` with the current workflow stage so owner and handoff state remain visible
 - `wrkflw` should use the team model when generating `implementation-plan.md`, especially team size and parallel implementation slots
 - `wrkflw` should require late-stage review evidence in `review-log.md` when Product Owner or Reviewer QA signoff is configured as required
+- `wrkflw:staff` should update team-config or team-overrides without forcing the user to hand-edit markdown for common staffing changes
+- `wrkflw:assign` should update per-epic role ownership in `agent-assignments.md`
+- `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
+- `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
 
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
@@ -156,7 +165,7 @@ To update an existing workflow state after approval or rejection, use the compan
 Preferred command handler:
 
 ```text
-python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next> [--reason "..."] [--items "..."] [--design-file <path>]
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync> [--reason "..."] [--items "..."] [--design-file <path>]
 ```
 
 Behavior expectations:
@@ -200,6 +209,10 @@ Behavior expectations:
 - `wrkflw:proceed-only "..."` should restrict the active scope to the named epic items or stories and defer everything else for now.
 - `wrkflw:defer "..."` should explicitly exclude or postpone the named epic items or stories without rejecting the entire stage.
 - `wrkflw:override "..."` should be reserved for explicit user waivers of a major workflow requirement such as proceeding without OpenSpec.
+- `wrkflw:staff "..."` should treat the reason text as staffing directives such as `team size: 5; parallel slots: 2; Implementer 2: own UI slice`.
+- `wrkflw:assign "..."` should treat the reason text as role-to-responsibility mappings for `agent-assignments.md`.
+- `wrkflw:challenge "..."` should support structured review evidence such as `role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete`.
+- `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
 - Keep OpenSpec execution single-lane by default at the initiative level: one epic workflow may own the active OpenSpec lane at a time, while other epics remain workflow-only until they reach their own active `spec-authoring` pass.
