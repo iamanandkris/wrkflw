@@ -279,18 +279,46 @@ If you want to use `wrkflw` on a large backend system, the CaseFlow example sugg
 
 ## Minimal Command Sequence
 
-The rough command sequence for a new initiative is:
+The earlier shorthand `approve` chain can be misleading if read literally.
+
+It does **not** mean “type approve five times without looking.”
+
+What it really means is:
+
+- start the lane with `wrkflw:discuss`
+- inspect the artifacts for the current stage
+- use `wrkflw:approve` only when the current stage output is good enough to advance
+
+A more accurate example looks like this:
 
 ```text
 wrkflw:discuss
+# review context.md, capabilities.md, state.md
 wrkflw:approve
+
+# review capability-review output
 wrkflw:approve
+
+# review epic-shaping output
 wrkflw:approve
+
+# review story-slicing output
 wrkflw:approve
+
+# review story-enrichment output
 wrkflw:approve
 ```
 
-At that point the active lane will usually be at or near `implementation-planning`.
+In a normal lane, those approvals usually move the workflow through:
+
+1. `discuss`
+2. `capability-review`
+3. `epic-shaping`
+4. `story-slicing`
+5. `story-enrichment`
+6. `spec-authoring` or `implementation-planning`
+
+The exact number of approvals varies by lane because OpenSpec requirements, overrides, and rework can change the path.
 
 Then, if using team execution:
 
