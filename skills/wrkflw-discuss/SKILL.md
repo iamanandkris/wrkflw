@@ -115,6 +115,9 @@ Team execution model:
 - `agent-assignments.md` should declare who owns which role for the epic lane
 - `execution-board.md` should track current work items, owners, status, and blockers
 - `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
+- `wrkflw` should synchronize `execution-board.md` with the current workflow stage so owner and handoff state remain visible
+- `wrkflw` should use the team model when generating `implementation-plan.md`, especially team size and parallel implementation slots
+- `wrkflw` should require late-stage review evidence in `review-log.md` when Product Owner or Reviewer QA signoff is configured as required
 
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`

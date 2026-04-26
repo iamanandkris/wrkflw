@@ -148,6 +148,42 @@ def parse_diagram_config(path: Path) -> dict[str, str]:
     }
 
 
+def parse_team_settings(wf: Path) -> dict[str, str]:
+    base = parse_kv_list(wf.parent / "team-config.md")
+    override = parse_kv_list(wf / "team-overrides.md")
+    settings = dict(base)
+    if override.get("Team size override", "").strip():
+        settings["Team size"] = override["Team size override"].strip()
+    if override.get("Parallel implementation slots override", "").strip():
+        settings["Parallel implementation slots"] = override["Parallel implementation slots override"].strip()
+    return settings
+
+
+def parse_execution_board(wf: Path) -> dict[str, str]:
+    values = {"Active story": "-", "Active owner": "-", "Current handoff": "-"}
+    for line in read_text(wf / "execution-board.md").splitlines():
+        if line.startswith("- ") and ":" in line:
+            key, _, value = line[2:].partition(":")
+            if key.strip() in values:
+                values[key.strip()] = value.strip()
+    return values
+
+
+def parse_review_log_summary(wf: Path) -> tuple[int, str]:
+    count = 0
+    roles: list[str] = []
+    for raw_line in read_text(wf / "review-log.md").splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|") or "---" in stripped or "Date" in stripped:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) >= 4 and parts[1]:
+            count += 1
+            if parts[1] not in roles:
+                roles.append(parts[1])
+    return count, ", ".join(roles) if roles else "-"
+
+
 def workflow_contract(path: Path) -> dict[str, str]:
     raw = parse_kv_list(path)
     return {
@@ -711,6 +747,9 @@ def write_flow_diagram(
     contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
     config = parse_diagram_config(wf / "diagram-config.md")
+    team = parse_team_settings(wf)
+    board = parse_execution_board(wf)
+    review_count, review_roles = parse_review_log_summary(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
@@ -767,6 +806,8 @@ def write_flow_diagram(
             f"OpenSpec: {current_openspec}",
             f"OpenSpec required: {contract.get('OpenSpec required', '-') or '-'}",
             f"OpenSpec initialized: {contract.get('OpenSpec initialized', '-') or '-'}",
+            f"Team size: {team.get('Team size', '-') or '-'}",
+            f"Parallel slots: {team.get('Parallel implementation slots', '-') or '-'}",
             f"Next: {state.get('Next action', '-') or '-'}",
             "end note",
             "note right of epic_shaping",
@@ -780,6 +821,9 @@ def write_flow_diagram(
             "note right of implementation",
             implementation_header,
             f"OpenSpec: {current_openspec}",
+            f"Owner: {board.get('Active owner', '-') or '-'}",
+            f"Handoff: {board.get('Current handoff', '-') or '-'}",
+            f"Review entries: {review_count} ({review_roles})",
             *active_task_lines,
             "end note",
             *story_flow_notes(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
@@ -796,6 +840,9 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     contract = workflow_contract(wf / "workflow-contract.md")
     mode = capability_mode(wf / "capabilities.md")
     config = parse_diagram_config(wf / "diagram-config.md")
+    team = parse_team_settings(wf)
+    board = parse_execution_board(wf)
+    review_count, review_roles = parse_review_log_summary(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
@@ -845,6 +892,11 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Epic goal: {epic_goal}',
         f'  Workflow mode: {mode}',
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
+        f'  Team size: {team.get("Team size", "-") or "-"}',
+        f'  Parallel slots: {team.get("Parallel implementation slots", "-") or "-"}',
+        f'  Active owner: {board.get("Active owner", "-") or "-"}',
+        f'  Current handoff: {board.get("Current handoff", "-") or "-"}',
+        f'  Review entries: {review_count} ({review_roles})',
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
         f'  Blocked: {state.get("Blocked reason", "-") or "-"}',
         f'  AutoApprove current gate: {"on" if gates.get(state.get("Current stage", ""), False) else "off"}',

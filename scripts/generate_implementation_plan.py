@@ -55,6 +55,53 @@ def parse_story_sections(path: Path) -> dict[str, list[str] | str]:
     return sections
 
 
+def parse_kv_list(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("- "):
+            key, _, value = line[2:].partition(":")
+            values[key.strip()] = value.strip()
+    return values
+
+
+def parse_team_settings(root: Path, slug: str) -> dict[str, str]:
+    base = parse_kv_list(root / ".workflow" / "team-config.md")
+    override = parse_kv_list(root / ".workflow" / slug / "team-overrides.md")
+    settings = dict(base)
+    if override.get("Team size override", "").strip():
+        settings["Team size"] = override["Team size override"].strip()
+    if override.get("Parallel implementation slots override", "").strip():
+        settings["Parallel implementation slots"] = override["Parallel implementation slots override"].strip()
+    return settings
+
+
+def parse_execution_board(path: Path) -> dict[str, str]:
+    board = {"Active owner": "-", "Current handoff": "-", "Active story": "-"}
+    for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
+        if line.startswith("- ") and ":" in line:
+            key, _, value = line[2:].partition(":")
+            if key.strip() in board:
+                board[key.strip()] = value.strip()
+    return board
+
+
+def implementation_slots(settings: dict[str, str]) -> int:
+    raw = settings.get("Parallel implementation slots", "1").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
+
+
+def distribute_items(items: list[str], slots: int) -> list[list[str]]:
+    buckets: list[list[str]] = [[] for _ in range(slots)]
+    for index, item in enumerate(items):
+        buckets[index % slots].append(item)
+    return buckets
+
+
 def first_n(items: list[str], n: int) -> list[str]:
     return items[:n]
 
@@ -83,9 +130,13 @@ def main() -> int:
     acceptance = list(story.get("Acceptance Criteria") or [])
     tests = list(story.get("Test Expectations") or [])
     risks = list(story.get("Risks") or [])
+    team = parse_team_settings(root, args.slug)
+    board = parse_execution_board(workflow_dir / "execution-board.md")
 
     included = first_n(tests, 3) or first_n(acceptance, 3) or [scope]
     deferred = remaining(tests, 3) + remaining(acceptance, 3)
+    slots = implementation_slots(team)
+    workstreams = distribute_items(included or [scope], slots)
 
     lines = [
         "# Implementation Plan",
@@ -99,6 +150,12 @@ def main() -> int:
         "## Planning Goal",
         f"Choose the smallest reviewable slice that advances this scope: {scope}",
         "",
+        "## Team Execution Context",
+        f"- Team size: {team.get('Team size', '-') or '-'}",
+        f"- Parallel implementation slots: {team.get('Parallel implementation slots', '-') or '-'}",
+        f"- Active owner from execution board: {board.get('Active owner', '-') or '-'}",
+        f"- Current handoff: {board.get('Current handoff', '-') or '-'}",
+        "",
         "## Recommended First PR Slice",
         "Take the first focused, demonstrable subset of the story that can land safely without pulling in broader cleanup or later-story work.",
         "",
@@ -108,6 +165,27 @@ def main() -> int:
         lines.append(f"- {item}")
     if not included:
         lines.append(f"- {scope}")
+
+    lines.extend([
+        "",
+        "## Ownership And Handoffs",
+        "- Product Owner: confirm scope boundaries and acceptance clarity before the slice is treated as implementation-ready.",
+        "- Tech Lead: finalize the smallest viable slice and keep ownership boundaries coherent.",
+    ])
+    for index, bucket in enumerate(workstreams, start=1):
+        label = f"Implementer {index}" if slots > 1 else "Implementer 1"
+        if bucket:
+            lines.append(f"- {label}: " + "; ".join(bucket))
+    lines.extend(
+        [
+            "- Reviewer QA: review the implemented slice against design, workflow, and OpenSpec before release-planning.",
+            "",
+            "## Team Discussion Prompts",
+            "- Product Owner challenge: is any included work drifting beyond the approved story scope?",
+            "- Tech Lead challenge: can any included item be deferred without harming the first useful slice?",
+            "- Reviewer QA challenge: which acceptance/test expectation is most likely to be missed if the slice is rushed?",
+        ]
+    )
 
     lines.extend([
         "",

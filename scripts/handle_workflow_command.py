@@ -518,6 +518,122 @@ def maybe_ensure_team_artifacts(root: Path, workflow_slug: str) -> None:
     )
 
 
+def parse_team_settings(root: Path, workflow_slug: str) -> dict[str, str]:
+    base = parse_kv_list(root / ".workflow" / "team-config.md")
+    override = parse_kv_list(root / ".workflow" / workflow_slug / "team-overrides.md")
+    settings = dict(base)
+    if override.get("Team size override", "").strip():
+        settings["Team size"] = override["Team size override"].strip()
+    if override.get("Parallel implementation slots override", "").strip():
+        settings["Parallel implementation slots"] = override["Parallel implementation slots override"].strip()
+    return settings
+
+
+def parse_markdown_table_rows(path: Path) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if "---" in stripped:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if parts and parts[0] not in {"Role", "Work Item", "Date"}:
+            rows.append(parts)
+    return rows
+
+
+def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) -> None:
+    board_path = root / ".workflow" / workflow_slug / "execution-board.md"
+    if not board_path.exists():
+        return
+    stage = ensure_stage(state.get("Current stage") or "discuss")
+    active_story = active_story_name(state) or "-"
+
+    active_owner = "Product Owner"
+    current_handoff = "Product Owner -> Tech Lead"
+    scope_status = "planned"
+    decomp_status = "planned"
+    impl_status = "planned"
+    review_status = "planned"
+
+    if stage in {"story-slicing", "story-enrichment"}:
+        scope_status = "in-progress"
+    elif stage in {"spec-authoring", "implementation-planning"}:
+        scope_status = "done"
+        decomp_status = "in-progress"
+        active_owner = "Tech Lead"
+        current_handoff = "Tech Lead -> Implementer"
+    elif stage == "implementation":
+        scope_status = "done"
+        decomp_status = "done"
+        impl_status = "in-progress"
+        active_owner = "Implementer"
+        current_handoff = "Implementer -> Reviewer QA"
+    elif stage in {"review", "release-planning"}:
+        scope_status = "done"
+        decomp_status = "done"
+        impl_status = "done"
+        review_status = "in-progress"
+        active_owner = "Reviewer QA"
+        current_handoff = "Reviewer QA -> Product Owner"
+    elif stage == "done":
+        scope_status = "done"
+        decomp_status = "done"
+        impl_status = "done"
+        review_status = "done"
+        active_owner = "Product Owner"
+        current_handoff = "Complete"
+
+    lines: list[str] = []
+    for raw_line in board_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line
+        if line.startswith("- Active story:"):
+            line = f"- Active story: {active_story}"
+        elif line.startswith("- Active owner:"):
+            line = f"- Active owner: {active_owner}"
+        elif line.startswith("- Current handoff:"):
+            line = f"- Current handoff: {current_handoff}"
+        elif line.startswith("| Story scope and acceptance review |"):
+            parts = [part.strip() for part in line.strip().strip("|").split("|")]
+            parts[2] = scope_status
+            line = "| " + " | ".join(parts) + " |"
+        elif line.startswith("| Technical decomposition |"):
+            parts = [part.strip() for part in line.strip().strip("|").split("|")]
+            parts[2] = decomp_status
+            line = "| " + " | ".join(parts) + " |"
+        elif line.startswith("| Implementation slice |"):
+            parts = [part.strip() for part in line.strip().strip("|").split("|")]
+            parts[2] = impl_status
+            line = "| " + " | ".join(parts) + " |"
+        elif line.startswith("| Review and challenge |"):
+            parts = [part.strip() for part in line.strip().strip("|").split("|")]
+            parts[2] = review_status
+            line = "| " + " | ".join(parts) + " |"
+        lines.append(line)
+    board_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def review_log_roles(path: Path) -> set[str]:
+    roles: set[str] = set()
+    for row in parse_markdown_table_rows(path):
+        if len(row) >= 4 and row[1]:
+            roles.add(row[1])
+    return roles
+
+
+def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
+    settings = parse_team_settings(root, workflow_slug)
+    review_roles = review_log_roles(root / ".workflow" / workflow_slug / "review-log.md")
+    reviewer_required = settings.get("Reviewer required", "false").strip().lower() in {"true", "1", "yes", "on"}
+    po_required = settings.get("Product owner required", "false").strip().lower() in {"true", "1", "yes", "on"}
+    if stage == "release-planning" and reviewer_required and "Reviewer QA" not in review_roles:
+        return True, "Reviewer QA signoff is missing in review-log.md for this story."
+    if stage == "done" and po_required and "Product Owner" not in review_roles:
+        return True, "Product Owner signoff is missing in review-log.md for this story."
+    return False, ""
+
+
 def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
     links_path = root / ".workflow" / workflow_slug / "links.md"
     links = parse_kv_list(links_path)
@@ -626,6 +742,12 @@ def enter_stage(
             state["Next action"] = "initialize OpenSpec or use an explicit override before continuing"
             return state
         if stage == "done":
+            blocked_by_team, team_reason = team_review_block(root, workflow_slug, stage)
+            if blocked_by_team:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = team_reason
+                state["Next action"] = "record the required team review/signoff in review-log.md before closing the workflow"
+                return state
             drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)
             if drift:
                 state["Human gate status"] = "blocked"
@@ -633,6 +755,13 @@ def enter_stage(
                 state["Next action"] = "run wrkflw:openspec-sync or wrkflw:reconcile before marking the workflow done"
                 return state
         apply_stage_entry_effects(stage, root, workflow_slug)
+        if stage == "release-planning":
+            blocked_by_team, team_reason = team_review_block(root, workflow_slug, stage)
+            if blocked_by_team:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = team_reason
+                state["Next action"] = "record the required team review/signoff in review-log.md before release planning continues"
+                return state
         if stage != "done":
             drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)
             if drift:
@@ -986,6 +1115,7 @@ def main() -> int:
         state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
 
     write_state(state_path, state)
+    sync_execution_board(root, args.slug, state)
     update_initiative_index(root, args.slug, state)
     append_history_event(root, args.slug, args.command, before_state, state)
     run(

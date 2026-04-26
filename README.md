@@ -209,6 +209,13 @@ Each workflow lane also gets:
 
 These are intended to model a small engineering team where design, coding, and challenge/review are separated instead of letting every agent write to everything.
 
+Current behavioral integration:
+- `execution-board.md` is automatically synchronized with the active workflow stage, handoff, and owner
+- `implementation-plan.md` is team-aware and uses team size / parallel implementation slots when suggesting ownership
+- `review-log.md` is used for late-stage challenge/signoff checks:
+  - `Reviewer QA` evidence is required before `release-planning` when reviewer signoff is enabled
+  - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
+
 ### Diagram history and compact vs expanded views
 
 `wrkflw` now keeps a persisted transition history in:
