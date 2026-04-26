@@ -16,6 +16,33 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def default_dependencies(slug: str) -> str:
+    return f"""# Dependencies
+
+- Workflow slug: {slug}
+- Depends on:
+- Satisfies: {slug}
+- Blocked by:
+- Unlocks:
+- Notes:
+"""
+
+
+def default_agent_sync_ledger() -> str:
+    return """# Agent Sync Ledger
+
+| Timestamp | Source | Digest | Role | Status |
+| --- | --- | --- | --- | --- |
+"""
+
+
+def ensure_init_runtime_artifacts(root: Path, slug: str) -> None:
+    wf = root / ".workflow" / slug
+    write_if_missing(wf / "dependencies.md", default_dependencies(slug))
+    write_if_missing(wf / "agent-sync-ledger.md", default_agent_sync_ledger())
+    (wf / "agent-results").mkdir(parents=True, exist_ok=True)
+
+
 def parse_kv_list(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in read_text(path).splitlines():
@@ -180,6 +207,9 @@ def main() -> int:
         "- flow.showStoryProgressHistory: true\n"
         "- work.showStoryProgressHistory: true\n",
     )
+    # Seed lane-level coordination artifacts here so a fresh workflow is complete
+    # even before later team backfill/generation steps run.
+    ensure_init_runtime_artifacts(root, args.slug)
     run(
         [
             "python3",
@@ -200,6 +230,7 @@ def main() -> int:
         ["python3", str(Path(__file__).with_name("ensure_team_artifacts.py")), "--slug", args.slug, "--root", str(root)],
         check=True,
     )
+    ensure_init_runtime_artifacts(root, args.slug)
     run(
         ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
         check=True,
