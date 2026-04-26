@@ -65,6 +65,10 @@ with files such as:
 - `links.md`
 - `gates.md`
 - `workflow-contract.md`
+- `team-overrides.md`
+- `agent-assignments.md`
+- `execution-board.md`
+- `review-log.md`
 - `design-slice.md` when a broad design file is normalized into an epic-specific workflow slice
 - `design-seed.md` when a design file is used
 
@@ -98,6 +102,19 @@ Canonical state rules:
   - `blocked`
   - `rejected`
 - do not write freeform substitutes such as `epic-shaped`, `story-sliced`, or `awaiting approval` into `state.md`
+
+Team execution model:
+- `wrkflw` should create a default initiative-level team configuration at `.workflow/team-config.md`
+- the default team should be a 4-role engineering team:
+  - `Product Owner`
+  - `Tech Lead`
+  - `Implementer`
+  - `Reviewer QA`
+- the user may override team size, role structure, and responsibilities by editing `.workflow/team-config.md`
+- the user may override team composition for a specific epic by editing `.workflow/<slug>/team-overrides.md`
+- `agent-assignments.md` should declare who owns which role for the epic lane
+- `execution-board.md` should track current work items, owners, status, and blockers
+- `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
 
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`

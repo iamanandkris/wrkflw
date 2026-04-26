@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+def write_if_missing(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(content, encoding="utf-8")
+
+
+def default_team_config() -> str:
+    return """# Team Config
+
+- Team mode: multi-agent-engineering-team
+- Team size: 4
+- Product owner required: true
+- Reviewer required: true
+- Parallel implementation slots: 1
+- Default approval policy: product-owner-and-reviewer-signoff
+- Override instructions: Edit this file to change default team size, structure, and responsibilities. Use `team-overrides.md` inside a workflow slug for epic-specific changes.
+
+## Role: Product Owner
+
+- Slot: product-owner
+- Enabled: true
+- Responsibilities:
+  - preserve design intent and scope boundaries
+  - approve story scope, acceptance clarity, and out-of-scope decisions
+  - challenge spec drift before workflow approval
+- Default write scope:
+  - `.workflow/<slug>/decisions.md`
+  - `.workflow/<slug>/review-log.md`
+  - `.workflow/<slug>/execution-board.md`
+- Default review authority: required at capability-review, epic-shaping, story-slicing, and release-planning
+
+## Role: Tech Lead
+
+- Slot: tech-lead
+- Enabled: true
+- Responsibilities:
+  - decompose work into PR-sized slices
+  - define implementation boundaries and interface decisions
+  - coordinate implementer and reviewer handoffs
+- Default write scope:
+  - `.workflow/<slug>/execution-board.md`
+  - `.workflow/<slug>/decisions.md`
+  - code and tests when explicitly taking implementation ownership
+- Default review authority: required before implementation-planning approval
+
+## Role: Implementer
+
+- Slot: implementer-1
+- Enabled: true
+- Responsibilities:
+  - implement assigned code and tests
+  - report files changed, validation run, and unresolved risks
+- Default write scope:
+  - code, tests, fixtures, docs in assigned ownership area
+  - `.workflow/<slug>/execution-board.md`
+- Default review authority: none
+
+## Role: Reviewer QA
+
+- Slot: reviewer-qa
+- Enabled: true
+- Responsibilities:
+  - review implementation against design, workflow, and OpenSpec
+  - identify regressions, missing tests, and acceptance mismatches
+  - challenge weak assumptions before approval
+- Default write scope:
+  - `.workflow/<slug>/review-log.md`
+  - `.workflow/<slug>/execution-board.md`
+- Default review authority: required before review and release-planning approval
+
+## Optional Expansion Patterns
+
+- To run a 3-person team:
+  - keep `product-owner`, `tech-lead`, and `reviewer-qa`
+  - let `tech-lead` temporarily absorb implementation ownership
+- To run a 5-person team:
+  - increase `Team size`
+  - clone the `Implementer` role into `implementer-2`
+  - set `Parallel implementation slots: 2`
+"""
+
+
+def default_team_overrides(slug: str) -> str:
+    return f"""# Team Overrides
+
+- Workflow slug: {slug}
+- Team size override:
+- Parallel implementation slots override:
+- Notes:
+
+## Role Changes
+
+- Product Owner:
+- Tech Lead:
+- Implementer 1:
+- Implementer 2:
+- Reviewer QA:
+"""
+
+
+def default_agent_assignments(slug: str) -> str:
+    return f"""# Agent Assignments
+
+- Workflow slug: {slug}
+- Team config source: `.workflow/team-config.md`
+- Override source: `.workflow/{slug}/team-overrides.md`
+
+| Role | Slot | Responsibility Focus | Default Ownership | Status |
+| --- | --- | --- | --- | --- |
+| Product Owner | product-owner | design intent, scope, acceptance, sequencing | workflow and review artifacts only | planned |
+| Tech Lead | tech-lead | architecture, decomposition, interfaces, handoffs | workflow artifacts and shared technical decisions | planned |
+| Implementer | implementer-1 | code and tests for the active slice | assigned code/tests only | planned |
+| Reviewer QA | reviewer-qa | review, challenge, regression and test checks | review artifacts only | planned |
+
+## Assignment Rules
+
+- Do not let every role write to every file.
+- Treat workflow/OpenSpec/design artifacts as the shared contract.
+- Keep implementer ownership disjoint when parallel implementation slots are greater than 1.
+"""
+
+
+def default_execution_board(slug: str) -> str:
+    return f"""# Execution Board
+
+- Workflow slug: {slug}
+- Active story:
+- Active owner:
+- Current handoff:
+
+| Work Item | Owner Role | Status | Blocked By | Reviewer | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Story scope and acceptance review | Product Owner | pending | | Reviewer QA | |
+| Technical decomposition | Tech Lead | pending | | Product Owner | |
+| Implementation slice | Implementer | pending | | Reviewer QA | |
+| Review and challenge | Reviewer QA | pending | | Product Owner | |
+
+## Status Vocabulary
+
+- `planned`
+- `in-progress`
+- `blocked`
+- `in-review`
+- `done`
+"""
+
+
+def default_review_log(slug: str) -> str:
+    return f"""# Review Log
+
+- Workflow slug: {slug}
+- Current story:
+
+## Review Policy
+
+- Product Owner challenges scope and design drift.
+- Reviewer QA challenges behavior, regressions, and missing tests.
+- Tech Lead resolves ownership and integration gaps.
+
+## Findings
+
+| Date | Role | Severity | Finding | Resolution |
+| --- | --- | --- | --- | --- |
+"""
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Ensure team execution artifacts exist for a workflow.")
+    parser.add_argument("--slug", required=True)
+    parser.add_argument("--root", default=".")
+    args = parser.parse_args()
+
+    root = Path(args.root).resolve()
+    workflow_root = root / ".workflow"
+    wf = workflow_root / args.slug
+    wf.mkdir(parents=True, exist_ok=True)
+
+    write_if_missing(workflow_root / "team-config.md", default_team_config())
+    write_if_missing(wf / "team-overrides.md", default_team_overrides(args.slug))
+    write_if_missing(wf / "agent-assignments.md", default_agent_assignments(args.slug))
+    write_if_missing(wf / "execution-board.md", default_execution_board(args.slug))
+    write_if_missing(wf / "review-log.md", default_review_log(args.slug))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

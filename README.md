@@ -131,6 +131,10 @@ including:
 - `gates.md`
 - `diagram-config.md`
 - `workflow-contract.md`
+- `team-overrides.md`
+- `agent-assignments.md`
+- `execution-board.md`
+- `review-log.md`
 - `design-slice.md` when the workflow is seeded from a broader design source
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
@@ -170,6 +174,40 @@ including:
 - `epic-candidates.md`
 
 The initiative index tracks each workflow slug as a separate epic lane with its current stage, design source, recorded OpenSpec change, and supporting docs.
+
+### Team execution
+
+`wrkflw` now seeds a default team model at:
+
+```text
+.workflow/team-config.md
+```
+
+The default team is:
+- `Product Owner`
+- `Tech Lead`
+- `Implementer`
+- `Reviewer QA`
+
+Use this file to specify or override:
+- team size
+- team structure
+- role responsibilities
+- parallel implementation slots
+- approval expectations
+
+For epic-specific changes, use:
+
+```text
+.workflow/<slug>/team-overrides.md
+```
+
+Each workflow lane also gets:
+- `agent-assignments.md`
+- `execution-board.md`
+- `review-log.md`
+
+These are intended to model a small engineering team where design, coding, and challenge/review are separated instead of letting every agent write to everything.
 
 ### Diagram history and compact vs expanded views
 

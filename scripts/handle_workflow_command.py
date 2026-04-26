@@ -505,6 +505,19 @@ def maybe_generate_capability_inventory(root: Path, workflow_slug: str) -> None:
     )
 
 
+def maybe_ensure_team_artifacts(root: Path, workflow_slug: str) -> None:
+    team_script = Path(__file__).with_name("ensure_team_artifacts.py")
+    if not team_script.exists():
+        return
+    run(
+        ["python3", str(team_script), "--slug", workflow_slug, "--root", str(root)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
     links_path = root / ".workflow" / workflow_slug / "links.md"
     links = parse_kv_list(links_path)
@@ -949,6 +962,7 @@ def main() -> int:
 
     maybe_seed_from_design(root, args.slug, args.design_file)
     maybe_generate_capability_inventory(root, args.slug)
+    maybe_ensure_team_artifacts(root, args.slug)
     refresh_workflow_contract(root, args.slug)
     before_state = deepcopy(state)
 

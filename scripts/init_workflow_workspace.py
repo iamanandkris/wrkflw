@@ -200,6 +200,10 @@ def main() -> int:
         ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
         check=True,
     )
+    run(
+        ["python3", str(Path(__file__).with_name("ensure_team_artifacts.py")), "--slug", args.slug, "--root", str(root)],
+        check=True,
+    )
     update_initiative_index(root, args.slug)
     return 0
 
