@@ -179,6 +179,8 @@ def default_runtime_contract(slug: str) -> str:
 - Runtime mode: file-driven
 - Delegated execution ready: false
 - Spawn policy: no automatic agent spawning; explicit orchestration only
+- Dispatch artifact: `.workflow/{slug}/team-dispatch.md`
+- Dispatch directory: `.workflow/{slug}/dispatch/`
 - State authority: `scripts/handle_workflow_command.py`
 - Active story:
 - Active owner:

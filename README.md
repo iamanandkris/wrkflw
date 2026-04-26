@@ -18,6 +18,7 @@
 - `wrkflw:assign`
 - `wrkflw:challenge`
 - `wrkflw:review-sync`
+- `wrkflw:team-run`
 
 It also supports:
 - design seed detection from `design.md` or `docs/design.md`
@@ -140,6 +141,7 @@ including:
 - `execution-board.md`
 - `review-log.md`
 - `runtime-contract.md`
+- `team-dispatch.md`
 - `design-slice.md` when the workflow is seeded from a broader design source
 - `design-seed.md` when applicable
 - `diagram-flow.puml`
@@ -212,6 +214,7 @@ Each workflow lane also gets:
 - `execution-board.md`
 - `review-log.md`
 - `runtime-contract.md`
+- `team-dispatch.md` and `dispatch/*.md` after delegated team execution is prepared
 
 These are intended to model a small engineering team where design, coding, and challenge/review are separated instead of letting every agent write to everything.
 
@@ -222,6 +225,7 @@ Current behavioral integration:
   - `Reviewer QA` evidence is required before `release-planning` when reviewer signoff is enabled
   - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
 - `runtime-contract.md` records the current file-driven team runtime contract and prepares the workflow for future delegated-agent execution without claiming automatic spawning today
+- `wrkflw:team-run` upgrades the current lane into delegated-runtime mode, generates role dispatch packets, and gives Codex the packets needed to spawn real role agents
 
 Team control commands:
 - `wrkflw:staff`
@@ -232,6 +236,10 @@ Team control commands:
   - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
 - `wrkflw:review-sync`
   - resynchronize workflow state and execution-board review notes from `review-log.md`
+- `wrkflw:team-run`
+  - generate `.workflow/<slug>/team-dispatch.md`
+  - generate `.workflow/<slug>/dispatch/*.md` role packets
+  - switch `runtime-contract.md` into `delegated-agent-team` mode for the active lane
 
 Suggested formats:
 
@@ -240,7 +248,35 @@ wrkflw:staff "team size: 5; parallel slots: 2; Implementer 2: own UI slice"
 wrkflw:assign "Implementer 1: schema and fixtures; Reviewer QA: regression and acceptance review"
 wrkflw:challenge "role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete"
 wrkflw:review-sync "Reviewer QA and Product Owner evidence recorded"
+wrkflw:team-run "Dispatch the active story with parallel implementer lanes"
 ```
+
+### Delegated team run
+
+`wrkflw:team-run` is the bridge from workflow artifacts to real parallel Codex agents.
+
+Expected sequence:
+- the workflow must already have an active story
+- the current stage should be `implementation-planning`, `implementation`, or `review`
+- `wrkflw` generates dispatch packets under:
+  - `.workflow/<slug>/team-dispatch.md`
+  - `.workflow/<slug>/dispatch/*.md`
+- Codex can then spawn the role agents from those packets:
+  - `Product Owner`
+  - `Tech Lead`
+  - `Implementer 1`
+  - `Implementer 2` when enabled
+  - `Reviewer QA`
+
+Execution model:
+- `Product Owner` and `Tech Lead` can run in parallel for scope and decomposition checks
+- implementer lanes can run in parallel only when ownership is disjoint
+- `Reviewer QA` reviews after implementer output exists
+- canonical `state.md` remains orchestrator-owned
+
+Current limit:
+- the Python plugin scripts generate the dispatch contract and packets
+- actual `spawn_agent` calls happen in Codex when `wrkflw:team-run` is invoked, not inside the Python scripts themselves
 
 ### Diagram history and compact vs expanded views
 

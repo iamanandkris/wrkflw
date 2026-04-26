@@ -450,6 +450,19 @@ def maybe_generate_implementation_plan(root: Path, workflow_slug: str) -> None:
     )
 
 
+def maybe_generate_team_dispatch(root: Path, workflow_slug: str) -> None:
+    dispatch_script = Path(__file__).with_name("generate_team_dispatch.py")
+    if not dispatch_script.exists():
+        return
+    run(
+        ["python3", str(dispatch_script), "--slug", workflow_slug, "--root", str(root)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def maybe_generate_story_slices(root: Path, workflow_slug: str) -> None:
     story_script = Path(__file__).with_name("generate_story_slices.py")
     if not story_script.exists():
@@ -812,6 +825,14 @@ def sync_runtime_contract(root: Path, workflow_slug: str, state: dict[str, str])
     )
 
 
+def set_runtime_mode(root: Path, workflow_slug: str, mode: str, spawn_policy: str) -> None:
+    runtime_path = root / ".workflow" / workflow_slug / "runtime-contract.md"
+    if not runtime_path.exists():
+        return
+    replace_or_append_bullet(runtime_path, "Runtime mode", mode)
+    replace_or_append_bullet(runtime_path, "Spawn policy", spawn_policy)
+
+
 def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
     settings = parse_team_settings(root, workflow_slug)
     review_roles = review_log_roles(root / ".workflow" / workflow_slug / "review-log.md")
@@ -979,6 +1000,43 @@ def handle_review_sync(
     state["Item note"] = f"review evidence synchronized: {summary}"
     state["Challenge note"] = ""
     state["Next action"] = "review evidence is synchronized; approve when the current gate is satisfied"
+    return state
+
+
+def handle_team_run(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    reason: str | None,
+) -> dict[str, str]:
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    active_story = active_story_name(state)
+    if current not in {"implementation-planning", "implementation", "review"}:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = "Delegated team execution is only valid during implementation-planning, implementation, or review."
+        state["Next action"] = "advance the workflow to implementation-planning or later before running the team"
+        return state
+    if not active_story:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = "No active story is recorded for delegated team execution."
+        state["Next action"] = "set or select the active story before running the team"
+        return state
+    if current == "implementation-planning":
+        maybe_generate_implementation_plan(root, workflow_slug)
+    maybe_generate_team_dispatch(root, workflow_slug)
+    set_runtime_mode(root, workflow_slug, "delegated-agent-team", "explicit wrkflw:team-run")
+    state["Item note"] = f"team dispatch prepared for {active_story}"
+    state["Challenge note"] = ""
+    if state.get("Human gate status") == "blocked":
+        blocked_reason = state.get("Blocked reason", "").strip() or "active workflow block"
+        state["Next action"] = f"resolve the current workflow block before delegated execution continues: {blocked_reason}"
+    else:
+        state["Next action"] = (
+            "run the role packets from .workflow/"
+            f"{workflow_slug}/dispatch/ using parallel implementer lanes and synchronized review evidence"
+        )
+    if reason and reason.strip():
+        state["Approval note"] = reason.strip()
     return state
 
 
@@ -1419,7 +1477,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, override, and team operations.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync", "team-run"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -1469,6 +1527,8 @@ def main() -> int:
         state = handle_challenge(state, root, args.slug, args.reason or args.items or "challenge raised", args.items)
     elif args.command == "review-sync":
         state = handle_review_sync(state, root, args.slug, args.reason)
+    elif args.command == "team-run":
+        state = handle_team_run(state, root, args.slug, args.reason)
 
     write_state(state_path, state)
     sync_execution_board(root, args.slug, state)

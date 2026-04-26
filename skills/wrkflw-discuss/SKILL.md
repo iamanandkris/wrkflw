@@ -37,6 +37,7 @@ Also treat these as workflow control intents:
 - `wrkflw:assign "..."`
 - `wrkflw:challenge "..."`
 - `wrkflw:review-sync "..."`
+- `wrkflw:team-run "..."`
 
 ## Behavior
 
@@ -120,6 +121,7 @@ Team execution model:
 - `execution-board.md` should track current work items, owners, status, and blockers
 - `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
 - `runtime-contract.md` should record the file-driven runtime contract that keeps shared inputs, outputs, ownership, and state authority explicit
+- `team-dispatch.md` should record the current delegated execution packet index for the active workflow lane
 - `wrkflw` should synchronize `execution-board.md` with the current workflow stage so owner and handoff state remain visible
 - `wrkflw` should use the team model when generating `implementation-plan.md`, especially team size and parallel implementation slots
 - `wrkflw` should require late-stage review evidence in `review-log.md` when Product Owner or Reviewer QA signoff is configured as required
@@ -127,6 +129,7 @@ Team execution model:
 - `wrkflw:assign` should update per-epic role ownership in `agent-assignments.md`
 - `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
 - `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
+- `wrkflw:team-run` should generate a delegated execution packet set and, when the user has explicitly asked for multi-agent execution, use those packets to spawn real role agents
 
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
@@ -165,7 +168,7 @@ To update an existing workflow state after approval or rejection, use the compan
 Preferred command handler:
 
 ```text
-python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync> [--reason "..."] [--items "..."] [--design-file <path>]
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync|team-run> [--reason "..."] [--items "..."] [--design-file <path>]
 ```
 
 Behavior expectations:
@@ -213,6 +216,17 @@ Behavior expectations:
 - `wrkflw:assign "..."` should treat the reason text as role-to-responsibility mappings for `agent-assignments.md`.
 - `wrkflw:challenge "..."` should support structured review evidence such as `role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete`.
 - `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
+- `wrkflw:team-run "..."` should only activate when the workflow already has an active story and is at `implementation-planning`, `implementation`, or `review`.
+- when `wrkflw:team-run` is used, first run the command handler so `.workflow/<slug>/team-dispatch.md` and `.workflow/<slug>/dispatch/*.md` are generated.
+- after the dispatch packets are generated, use Codex delegated agents to enact the team model:
+  - `Product Owner`: use a `default` agent for scope/acceptance challenge
+  - `Tech Lead`: use a `default` agent for decomposition/integration guidance
+  - `Implementer` lanes: use `worker` agents with disjoint write ownership
+  - `Reviewer QA`: use a `default` agent for review/challenge findings
+- do not let spawned agents update canonical `state.md` directly.
+- do not spawn implementer lanes in parallel unless ownership is clearly disjoint in `agent-assignments.md`.
+- prefer spawning Product Owner and Tech Lead in parallel with implementer work only when their tasks are not blocking the next step.
+- after delegated work returns, synchronize evidence back into `execution-board.md` and `review-log.md`, then use the normal `wrkflw` commands to advance or block the workflow.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
 - Keep OpenSpec execution single-lane by default at the initiative level: one epic workflow may own the active OpenSpec lane at a time, while other epics remain workflow-only until they reach their own active `spec-authoring` pass.
