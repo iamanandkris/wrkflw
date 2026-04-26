@@ -10,6 +10,10 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def slug_tokens(value: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if token}
+
+
 def first_line_starting(text: str, prefix: str) -> str:
     for line in text.splitlines():
         if line.startswith(prefix):
@@ -193,6 +197,19 @@ SERVICE_CAPABILITIES = [
     },
 ]
 
+SERVICE_CAPABILITY_WORKFLOW_HINTS = {
+    "Contract Runtime Boundary": "contract-and-lifecycle-foundation",
+    "Case And Task Domain Model": "contract-and-lifecycle-foundation",
+    "Lifecycle Transition Enforcement": "core-case-and-task-orchestration",
+    "Patch And Partial Mutation": "approvals-and-decision-governance",
+    "Approval And Decision Governance": "approvals-and-decision-governance",
+    "Evidence Intake And Secure Views": "evidence-intake-and-secure-storage",
+    "Queue, SLA, And Assignment Operations": "queue-operations-and-sla-management",
+    "Audit Trail And Timeline Reconstruction": "audit-search-and-timeline-reconstruction",
+    "API And Event Surface": "admin-template-design-experience",
+    "Schema And UI Metadata": "admin-template-design-experience",
+}
+
 
 def capability_status(capability: dict[str, object], mode: str, text: str) -> tuple[str, str]:
     lowered = text.lower()
@@ -223,7 +240,57 @@ def is_caseflow_service(text: str) -> bool:
     return sum(1 for signal in signals if signal in lowered) >= 4
 
 
-def format_inventory(mode: str, rationale: str, text: str) -> str:
+def parse_initiative_index(path: Path) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    if not path.exists():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or "Workflow slug" in stripped or set(stripped) <= {"|", "-", " "}:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) < 2:
+            continue
+        rows[parts[0]] = parts[1]
+    return rows
+
+
+def capability_workflow_owner(capability_name: str, workflow_slug: str, workflow_statuses: dict[str, str]) -> str:
+    hinted = SERVICE_CAPABILITY_WORKFLOW_HINTS.get(capability_name, "")
+    if hinted in workflow_statuses or hinted == workflow_slug:
+        return hinted
+    capability_tokens = slug_tokens(capability_name)
+    current_best = ""
+    current_score = 0
+    for candidate in workflow_statuses:
+        overlap = capability_tokens & slug_tokens(candidate)
+        score = len(overlap)
+        if score > current_score:
+            current_best = candidate
+            current_score = score
+    return current_best
+
+
+def service_capability_status(
+    capability: dict[str, object],
+    workflow_slug: str,
+    workflow_statuses: dict[str, str],
+    text: str,
+) -> tuple[str, str, str]:
+    owner = capability_workflow_owner(str(capability["name"]), workflow_slug, workflow_statuses)
+    lowered = text.lower()
+    explicit = any(keyword in lowered for keyword in capability["keywords"])
+    if owner and owner != workflow_slug:
+        owner_status = workflow_statuses.get(owner, "").strip().lower()
+        if owner_status == "done":
+            return "satisfied by prior epic", owner, f"This capability is already delivered by the completed `{owner}` workflow."
+        return "deferred to later epic", owner, f"This capability belongs to `{owner}` and should not be pulled into `{workflow_slug}` yet."
+    if explicit:
+        return "required", owner or workflow_slug, "The design/context already mentions this service capability explicitly for the current epic."
+    return "recommended", owner or workflow_slug, "This capability is adjacent to the current epic and can be staged behind the first required slice."
+
+
+def format_inventory(mode: str, rationale: str, text: str, workflow_slug: str, workflow_statuses: dict[str, str]) -> str:
     lines = [
         "# Capability Inventory",
         "",
@@ -249,18 +316,15 @@ def format_inventory(mode: str, rationale: str, text: str) -> str:
 
     for capability in capabilities:
         if capabilities is SERVICE_CAPABILITIES:
-            status = "required" if any(keyword in text.lower() for keyword in capability["keywords"]) else "recommended"
-            why_now = (
-                "The design/context already mentions this service capability explicitly."
-                if status == "required"
-                else "This capability is a natural follow-on for the first backend platform slices."
-            )
+            status, owner, why_now = service_capability_status(capability, workflow_slug, workflow_statuses, text)
         else:
             status, why_now = capability_status(capability, mode, text)
+            owner = workflow_slug
         lines.extend(
             [
                 f"### {capability['name']}",
                 f"- Status: {status}",
+                f"- Owning workflow: {owner or workflow_slug}",
                 f"- Why: {capability['why']}",
                 f"- Why now: {why_now}",
                 "- Story prompts:",
@@ -288,8 +352,8 @@ def main() -> int:
     design_seed = read_text(wf / "design-seed.md")
     combined = "\n".join(part for part in [context, design_slice, design_seed] if part.strip())
     mode, rationale = detect_mode(combined)
-
-    inventory = format_inventory(mode, rationale, combined)
+    workflow_statuses = parse_initiative_index(root / ".workflow" / "initiative-index.md")
+    inventory = format_inventory(mode, rationale, combined, args.slug, workflow_statuses)
     (wf / "capabilities.md").write_text(inventory, encoding="utf-8")
     return 0
 

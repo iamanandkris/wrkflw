@@ -199,6 +199,8 @@ def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]
             continue
         if stripped.startswith("- Status:"):
             current["status"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- Owning workflow:"):
+            current["owner"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why:"):
             current["why"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why now:"):
@@ -235,7 +237,7 @@ def infer_story_coverage(
         title_hits = sum(1 for token in name_tokens if token in text)
         if title_hits > 0 or prompt_hits >= 2:
             covered.append(capability)
-        elif status in {"required", "recommended"}:
+        elif status in {"required", "recommended", "deferred to later epic", "recommended follow-up"}:
             deferred.append(capability)
     return covered, deferred
 
@@ -300,7 +302,8 @@ def main() -> int:
         deferred_capabilities = [
             capability
             for capability in capability_inventory
-            if capability not in covered_capabilities and str(capability.get("status", "")) in {"required", "recommended"}
+            if capability not in covered_capabilities
+            and str(capability.get("status", "")) in {"required", "recommended", "deferred to later epic", "recommended follow-up"}
         ]
     else:
         covered_capabilities, deferred_capabilities = infer_story_coverage(

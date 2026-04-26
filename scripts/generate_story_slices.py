@@ -36,6 +36,8 @@ def parse_capabilities(path: Path) -> tuple[str, list[dict[str, str]]]:
             continue
         if stripped.startswith("- Status:"):
             current["status"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- Owning workflow:"):
+            current["owner"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why:"):
             current["why"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why now:"):
@@ -63,16 +65,70 @@ def capability_map(capabilities: list[dict[str, str]]) -> dict[str, dict[str, st
 
 
 def selected_capabilities(mode: str, capabilities: list[dict[str, str]]) -> list[dict[str, str]]:
-    if mode == "tutorial-sample":
-        allowed = {"required", "recommended"}
-    elif mode in {"feature-harness", "product-service"}:
+    if mode in {"tutorial-sample", "feature-harness", "product-service"}:
         allowed = {"required", "recommended"}
     else:
         allowed = {"required"}
     return [cap for cap in capabilities if cap.get("status") in allowed]
 
+PRODUCT_SERVICE_STORY_TEMPLATES = {
+    "Contract Runtime Boundary": (
+        "Establish Contract Runtime Boundary",
+        "Create the isolated Concentric-backed contract runtime module and Java-friendly service interfaces so the rest of the platform can consume a stable lifecycle boundary.",
+    ),
+    "Case And Task Domain Model": (
+        "Define Case And Task Domain Model",
+        "Define the core aggregates, task state, and persistence-facing domain structures so later orchestration and governance slices build on explicit contracts.",
+    ),
+    "Lifecycle Transition Enforcement": (
+        "Enforce Lifecycle Transition Rules",
+        "Validate lifecycle progression through centralized transition rules and return structured blocked-transition feedback.",
+    ),
+    "Patch And Partial Mutation": (
+        "Add Patch And Partial Mutation Flows",
+        "Support controlled partial updates while preserving lifecycle, validation, and field-level semantics.",
+    ),
+    "Approval And Decision Governance": (
+        "Enforce Approval Dependencies And Decision Records",
+        "Add explicit approval requirements, decision records, and blocked-action reasons for approval-gated transitions.",
+    ),
+    "Evidence Intake And Secure Views": (
+        "Add Evidence Intake And Secure Views",
+        "Introduce evidence metadata contracts, secure view filtering, and the first controlled evidence-ingest path.",
+    ),
+    "Queue, SLA, And Assignment Operations": (
+        "Add Queue, SLA, And Assignment Operations",
+        "Represent assignment, queue, and breach-handling state explicitly so operational flows become enforceable and queryable.",
+    ),
+    "Audit Trail And Timeline Reconstruction": (
+        "Add Audit Trail And Timeline Reconstruction",
+        "Persist immutable audit events and expose timeline reconstruction behavior for review and regulatory traceability.",
+    ),
+    "API And Event Surface": (
+        "Expose API And Event Surface",
+        "Publish the first synchronous and asynchronous boundaries so external systems and UI clients can consume the platform safely.",
+    ),
+    "Schema And UI Metadata": (
+        "Expose Schema And UI Metadata",
+        "Expose contract-derived schema metadata so stage-aware forms and admin tooling stay aligned with contract evolution.",
+    ),
+}
 
-def build_story_specs(mode: str, caps: dict[str, dict[str, str]]) -> list[dict[str, object]]:
+PRODUCT_SERVICE_PRIORITY = {
+    "Approval And Decision Governance": 10,
+    "Patch And Partial Mutation": 20,
+    "Contract Runtime Boundary": 30,
+    "Case And Task Domain Model": 40,
+    "Lifecycle Transition Enforcement": 50,
+    "Evidence Intake And Secure Views": 60,
+    "Queue, SLA, And Assignment Operations": 70,
+    "Audit Trail And Timeline Reconstruction": 80,
+    "API And Event Surface": 90,
+    "Schema And UI Metadata": 100,
+}
+
+
+def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug: str) -> list[dict[str, object]]:
     stories: list[dict[str, object]] = []
 
     def has(name: str) -> bool:
@@ -139,55 +195,29 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]]) -> list[dict[s
             ("Add Developer Guidance", ["Developer Guidance"]),
         ]
     elif mode == "product-service":
-        service_story_specs = [
-            (
-                "Establish Contract Runtime Boundary",
-                [
-                    "Contract Runtime Boundary",
-                    "Case And Task Domain Model",
-                ],
-                "Create the isolated Concentric-backed contract runtime module and the first Java-friendly domain contracts so the rest of the platform can consume a stable lifecycle boundary.",
+        actionable = [caps[name] for name in caps if caps[name].get("status") in {"required", "recommended"}]
+        current_owner = [cap for cap in actionable if cap.get("owner", workflow_slug) == workflow_slug]
+        ordered = sorted(
+            current_owner or actionable,
+            key=lambda capability: (
+                PRODUCT_SERVICE_PRIORITY.get(str(capability["name"]), 999),
+                str(capability["name"]),
             ),
-            (
-                "Add Lifecycle Transition And Patch Enforcement",
-                [
-                    "Lifecycle Transition Enforcement",
-                    "Patch And Partial Mutation",
-                    "Approval And Decision Governance",
-                ],
-                "Enforce transition validity, patch semantics, and decision/approval prerequisites through the contract and policy layers.",
-            ),
-            (
-                "Add Evidence, Queue, And Audit Operations",
-                [
-                    "Evidence Intake And Secure Views",
-                    "Queue, SLA, And Assignment Operations",
-                    "Audit Trail And Timeline Reconstruction",
-                ],
-                "Cover the operational behaviors that make case work auditable, secure, and manageable at scale.",
-            ),
-            (
-                "Expose API, Events, And Schema Metadata",
-                [
-                    "API And Event Surface",
-                    "Schema And UI Metadata",
-                ],
-                "Expose the initial write/read interfaces, durable event surface, and contract-derived metadata needed by surrounding systems and admin tooling.",
-            ),
-        ]
-        stories = []
+        )
         prior_exists = False
         story_number = 1
-        for title, names, body in service_story_specs:
-            covered = [name for name in names if has(name)]
-            if not covered:
-                continue
+        for capability in ordered:
+            name = capability["name"]
+            title, body = PRODUCT_SERVICE_STORY_TEMPLATES.get(
+                name,
+                (f"Implement {slug_title(name)}", f"Add a focused delivery slice for {name.lower()}."),
+            )
             stories.append(
                 {
                     "title": title,
                     "depends_on": [f"Story {story_number - 1}"] if prior_exists else [],
                     "body": body,
-                    "covers": covered,
+                    "covers": [name],
                 }
             )
             prior_exists = True
@@ -225,7 +255,14 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]]) -> list[dict[s
     return stories
 
 
-def render_story_file(problem: str, goal: str, mode: str, stories: list[dict[str, object]]) -> str:
+def render_story_file(
+    problem: str,
+    goal: str,
+    mode: str,
+    stories: list[dict[str, object]],
+    completed_dependencies: list[str],
+    deferred_follow_up: list[str],
+) -> str:
     lines = [
         "# Story Slices",
         "",
@@ -236,8 +273,22 @@ def render_story_file(problem: str, goal: str, mode: str, stories: list[dict[str
         f"- Workflow mode: {mode}",
         f"- Problem: {problem or '-'}",
         f"- Goal: {goal or '-'}",
-        "",
     ]
+    if completed_dependencies:
+        lines.extend(
+            [
+                "- Completed dependencies:",
+                *[f"  - `{item}`" for item in completed_dependencies],
+            ]
+        )
+    if deferred_follow_up:
+        lines.extend(
+            [
+                "- Deferred follow-up lanes/capabilities:",
+                *[f"  - {item}" for item in deferred_follow_up],
+            ]
+        )
+    lines.append("")
     for idx, story in enumerate(stories, start=1):
         lines.extend(
             [
@@ -278,13 +329,27 @@ def main() -> int:
     context = parse_context(wf / "context.md")
     mode, capabilities = parse_capabilities(wf / "capabilities.md")
     selected = selected_capabilities(mode, capabilities)
-    stories = build_story_specs(mode, capability_map(selected))
+    stories = build_story_specs(mode, capability_map(selected), args.slug)
+    completed_dependencies = sorted(
+        {
+            cap.get("owner", "").strip()
+            for cap in capabilities
+            if cap.get("status") == "satisfied by prior epic" and cap.get("owner", "").strip()
+        }
+    )
+    deferred_follow_up = [
+        f"{cap['name']} [{cap.get('status', '')}]"
+        for cap in capabilities
+        if cap.get("status") in {"deferred to later epic", "recommended follow-up"}
+    ]
 
     rendered = render_story_file(
         problem=context.get("Problem", ""),
         goal=context.get("Goal", ""),
         mode=mode,
         stories=stories,
+        completed_dependencies=completed_dependencies,
+        deferred_follow_up=deferred_follow_up,
     )
     (wf / "stories.md").write_text(rendered, encoding="utf-8")
     return 0

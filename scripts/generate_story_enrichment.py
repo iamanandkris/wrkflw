@@ -88,11 +88,13 @@ def parse_capabilities(path: Path) -> dict[str, dict[str, object]]:
             continue
         if stripped.startswith("- Status:"):
             current["status"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- Owning workflow:"):
+            current["owner"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why:"):
             current["why"] = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("- Why now:"):
             current["why_now"] = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("- ") and not stripped.startswith("- Status:") and not stripped.startswith("- Why:") and not stripped.startswith("- Why now:"):
+        elif stripped.startswith("- ") and not stripped.startswith("- Status:") and not stripped.startswith("- Owning workflow:") and not stripped.startswith("- Why:") and not stripped.startswith("- Why now:"):
             prompt = stripped[2:].strip()
             if prompt and prompt.lower() != "story prompts:":
                 prompts.append(prompt)

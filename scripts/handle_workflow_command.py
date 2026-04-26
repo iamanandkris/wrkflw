@@ -1856,6 +1856,11 @@ def enter_stage(
                 return state
     state["Human gate status"] = "pending" if stage in GATED_STAGES else "approved"
     state["Blocked reason"] = ""
+    if stage in {"story-enrichment", "spec-authoring", "implementation-planning", "implementation", "review", "release-planning"}:
+        if not state.get("Active items", "").strip():
+            first_story = first_story_item(root, workflow_slug) if root is not None and workflow_slug is not None else ""
+            if first_story:
+                state["Active items"] = first_story
     state["Next action"] = NEXT_ACTION.get(stage, "")
     return state
 
@@ -1910,6 +1915,33 @@ def load_story_dependencies(root: Path, slug: str) -> dict[str, list[str]]:
     return dependencies
 
 
+def first_story_item(root: Path, slug: str) -> str:
+    stories_path = root / ".workflow" / slug / "stories.md"
+    if not stories_path.exists():
+        return ""
+    for raw_line in stories_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("## Story "):
+            return normalize_item_name(line[3:].split(":", 1)[0])
+    return ""
+
+
+SPECIAL_SATISFIED_DEPENDENCIES = {
+    "completed prior epic",
+    "completed prior epics",
+    "completed dependencies",
+}
+
+
+def completed_workflow_dependencies(root: Path) -> set[str]:
+    done: set[str] = set()
+    for workflow_slug in workflow_slugs(root):
+        state = parse_state(root / ".workflow" / workflow_slug / "state.md")
+        if ensure_stage(state.get("Current stage") or "discuss") == "done":
+            done.add(normalize_item_name(workflow_slug))
+    return done
+
+
 def extract_story_number(name: str) -> int | None:
     match = re.search(r"(\d+)", name)
     return int(match.group(1)) if match else None
@@ -1931,12 +1963,21 @@ def completed_items(state: dict[str, str], known_items: set[str]) -> set[str]:
     return completed
 
 
-def missing_dependencies(selected_items: list[str], dependencies: dict[str, list[str]], completed: set[str]) -> dict[str, list[str]]:
+def missing_dependencies(
+    selected_items: list[str],
+    dependencies: dict[str, list[str]],
+    completed: set[str],
+    completed_workflows: set[str] | None = None,
+) -> dict[str, list[str]]:
     selected_set = {normalize_item_name(item) for item in selected_items}
-    satisfied = selected_set | completed
+    satisfied = selected_set | completed | (completed_workflows or set())
     missing: dict[str, list[str]] = {}
     for item in selected_set:
-        deps = [dep for dep in dependencies.get(item, []) if dep not in satisfied]
+        deps = [
+            dep
+            for dep in dependencies.get(item, [])
+            if dep.lower() not in SPECIAL_SATISFIED_DEPENDENCIES and dep not in satisfied
+        ]
         if deps:
             missing[item] = deps
     return missing
@@ -2067,7 +2108,7 @@ def handle_proceed_only(state: dict[str, str], items: str, reason: str | None, r
     selected = [normalize_item_name(item) for item in parse_items(items)]
     dependencies = load_story_dependencies(root, slug)
     completed = completed_items(state, set(dependencies) | set(selected))
-    missing = missing_dependencies(selected, dependencies, completed)
+    missing = missing_dependencies(selected, dependencies, completed, completed_workflow_dependencies(root))
     state["Current stage"] = current
     state["Human gate status"] = "pending"
     state["Blocked reason"] = ""
@@ -2097,10 +2138,18 @@ def handle_defer(state: dict[str, str], items: str, reason: str | None, root: Pa
     active = [normalize_item_name(item) for item in parse_items(state.get("Active items", ""))]
     dependencies = load_story_dependencies(root, slug)
     completed = completed_items(state, set(dependencies) | set(active) | set(deferred))
+    completed_workflows = completed_workflow_dependencies(root)
     missing = {
-        item: [dep for dep in dependencies.get(item, []) if dep in deferred and dep not in completed]
+        item: [
+            dep
+            for dep in dependencies.get(item, [])
+            if dep.lower() not in SPECIAL_SATISFIED_DEPENDENCIES and dep in deferred and dep not in completed and dep not in completed_workflows
+        ]
         for item in active
-        if any(dep in deferred and dep not in completed for dep in dependencies.get(item, []))
+        if any(
+            dep.lower() not in SPECIAL_SATISFIED_DEPENDENCIES and dep in deferred and dep not in completed and dep not in completed_workflows
+            for dep in dependencies.get(item, [])
+        )
     }
     missing = {item: deps for item, deps in missing.items() if deps}
     state["Current stage"] = current
