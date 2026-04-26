@@ -21,6 +21,94 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def parse_kv_list(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in read_text(path).splitlines():
+        if line.startswith("- "):
+            key, _, value = line[2:].partition(":")
+            values[key.strip()] = value.strip()
+    return values
+
+
+def parse_state(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in read_text(path).splitlines():
+        if line.startswith("- "):
+            key, _, value = line[2:].partition(":")
+            values[key.strip()] = value.strip()
+    return values
+
+
+def initiative_status(state: dict[str, str]) -> str:
+    stage = state.get("Current stage", "").strip() or "discuss"
+    gate = state.get("Human gate status", "").strip()
+    if stage == "done":
+        return "done"
+    if gate == "blocked":
+        return "blocked"
+    if gate == "approved":
+        return "in-progress"
+    return "pending"
+
+
+def update_initiative_index(root: Path, workflow_slug: str) -> None:
+    workflow_root = root / ".workflow"
+    index_path = workflow_root / "initiative-index.md"
+    state = parse_state(workflow_root / workflow_slug / "state.md")
+    links = parse_kv_list(workflow_root / workflow_slug / "links.md")
+
+    row = {
+        "Workflow slug": workflow_slug,
+        "Status": initiative_status(state),
+        "Current stage": state.get("Current stage", "").strip() or "discuss",
+        "Design seed": links.get("Design seed", "").strip() or "-",
+        "OpenSpec change": links.get("OpenSpec change", "").strip() or "-",
+        "Docs": links.get("Docs", "").strip() or "-",
+    }
+
+    rows: list[dict[str, str]] = []
+    for line in read_text(index_path).splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or "Workflow slug" in stripped or set(stripped) <= {"|", "-", " "}:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) != 6:
+            continue
+        rows.append(
+            {
+                "Workflow slug": parts[0],
+                "Status": parts[1],
+                "Current stage": parts[2],
+                "Design seed": parts[3],
+                "OpenSpec change": parts[4],
+                "Docs": parts[5],
+            }
+        )
+
+    replaced = False
+    for index, existing in enumerate(rows):
+        if existing["Workflow slug"] == workflow_slug:
+            rows[index] = row
+            replaced = True
+            break
+    if not replaced:
+        rows.append(row)
+
+    rows.sort(key=lambda item: item["Workflow slug"])
+    output = [
+        "# Initiative Index",
+        "",
+        "| Workflow slug | Status | Current stage | Design seed | OpenSpec change | Docs |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in rows:
+        output.append(
+            f"| {item['Workflow slug']} | {item['Status']} | {item['Current stage']} | {item['Design seed']} | {item['OpenSpec change']} | {item['Docs']} |"
+        )
+    output.append("")
+    write_text(index_path, "\n".join(output))
+
+
 def parse_state_active_item(state_path: Path) -> str:
     for line in read_text(state_path).splitlines():
         if line.startswith("- Active items:"):
@@ -175,7 +263,8 @@ def main() -> int:
     story_header, story_block = parse_story_block(read_text(stories_path), active_story)
     story_title = story_header.split(":", 1)[1].strip() if ":" in story_header else active_story
     capability_slug = slugify(story_title)
-    change_slug = args.change_slug or slugify(story_title)
+    workflow_prefixed_story_slug = f"{args.slug}-{capability_slug}"
+    change_slug = args.change_slug or workflow_prefixed_story_slug
 
     story_enrichment = read_text(story_file_path).strip()
     enrichment_sections = parse_markdown_sections(story_enrichment)
@@ -348,6 +437,7 @@ def main() -> int:
     else:
         links = links.rstrip() + ("\n" if links.strip() else "") + openspec_line + "\n"
     write_text(links_path, links)
+    update_initiative_index(root, args.slug)
     run(
         ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
         cwd=root,

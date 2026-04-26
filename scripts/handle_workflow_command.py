@@ -174,6 +174,77 @@ def write_kv_list(path: Path, title: str, fields: list[str], values: dict[str, s
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def initiative_status(state: dict[str, str]) -> str:
+    stage = ensure_stage(state.get("Current stage") or "discuss")
+    gate = (state.get("Human gate status") or "").strip()
+    if stage == "done":
+        return "done"
+    if gate == "blocked":
+        return "blocked"
+    if gate == "approved":
+        return "in-progress"
+    return "pending"
+
+
+def update_initiative_index(root: Path, workflow_slug: str, state: dict[str, str] | None = None) -> None:
+    workflow_root = root / ".workflow"
+    workflow_root.mkdir(parents=True, exist_ok=True)
+    index_path = workflow_root / "initiative-index.md"
+    current_state = state or parse_state(workflow_root / workflow_slug / "state.md")
+    links = parse_kv_list(workflow_root / workflow_slug / "links.md")
+
+    row = {
+        "Workflow slug": workflow_slug,
+        "Status": initiative_status(current_state),
+        "Current stage": ensure_stage(current_state.get("Current stage") or "discuss"),
+        "Design seed": links.get("Design seed", "").strip() or "-",
+        "OpenSpec change": links.get("OpenSpec change", "").strip() or "-",
+        "Docs": links.get("Docs", "").strip() or "-",
+    }
+
+    rows: list[dict[str, str]] = []
+    for line in index_path.read_text(encoding="utf-8").splitlines() if index_path.exists() else []:
+        stripped = line.strip()
+        if not stripped.startswith("|") or "Workflow slug" in stripped or set(stripped) <= {"|", "-", " "}:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) != 6:
+            continue
+        rows.append(
+            {
+                "Workflow slug": parts[0],
+                "Status": parts[1],
+                "Current stage": parts[2],
+                "Design seed": parts[3],
+                "OpenSpec change": parts[4],
+                "Docs": parts[5],
+            }
+        )
+
+    replaced = False
+    for index, existing in enumerate(rows):
+        if existing["Workflow slug"] == workflow_slug:
+            rows[index] = row
+            replaced = True
+            break
+    if not replaced:
+        rows.append(row)
+
+    rows.sort(key=lambda item: item["Workflow slug"])
+    output = [
+        "# Initiative Index",
+        "",
+        "| Workflow slug | Status | Current stage | Design seed | OpenSpec change | Docs |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in rows:
+        output.append(
+            f"| {item['Workflow slug']} | {item['Status']} | {item['Current stage']} | {item['Design seed']} | {item['OpenSpec change']} | {item['Docs']} |"
+        )
+    output.append("")
+    index_path.write_text("\n".join(output), encoding="utf-8")
+
+
 def ensure_stage(stage: str) -> str:
     return stage if stage in STAGE_ORDER else "discuss"
 
@@ -793,6 +864,7 @@ def main() -> int:
         state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
 
     write_state(state_path, state)
+    update_initiative_index(root, args.slug, state)
     append_history_event(root, args.slug, args.command, before_state, state)
     run(
         ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],

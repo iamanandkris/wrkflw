@@ -122,6 +122,7 @@ Behavior expectations:
   - epic candidates inferred from the broader design
   - an epic-specific `design-slice.md` inside `.workflow/<slug>/`
   - section-aware epic candidates that preserve capability, actor, architecture, and operational evidence instead of flattening the raw design into one mixed scope bucket
+- each workflow slug should register itself in `.workflow/initiative-index.md` so multiple epic lanes can be tracked under the same repo without sharing one state file
 - `wrkflw:discuss` should use repository evidence such as `README.md`, build files, source entrypoints, tests, and active OpenSpec artifacts as first-pass evidence of current behavior.
 - `wrkflw:discuss` should summarize the current implementation shape, capability coverage, and obvious gaps before story slicing.
 - `wrkflw:discuss` should reconcile observed code with the design seed or design document and surface conflicts explicitly before moving into epic shaping or story slicing.
@@ -164,7 +165,8 @@ Dependency convention:
 OpenSpec handoff convention:
 - `wrkflw` owns orchestration before and after spec authoring.
 - OpenSpec owns the spec artifacts during `spec-authoring`.
-- When `spec-authoring` is reached and OpenSpec is available, prefer creating or updating a real change in `openspec/changes/<slug>/`.
+- When `spec-authoring` is reached and OpenSpec is available, prefer creating or updating a real change in `openspec/changes/<workflow-slug>-<story-slug>/`.
+- Prefix OpenSpec change slugs with the workflow slug so parallel epic workflows do not collide, for example `openspec/changes/http-surface-story-1-http-api`.
 - Record the active OpenSpec change in `.workflow/<slug>/links.md`.
 - When moving to the next story, create a new OpenSpec change for that story and keep previous changes as historical context. Continuity comes from:
   - the workflow artifacts in `.workflow/<slug>/`

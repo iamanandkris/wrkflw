@@ -116,6 +116,12 @@ The workflow creates artifacts under:
 .workflow/<slug>/
 ```
 
+with a lightweight parent registry at:
+
+```text
+.workflow/initiative-index.md
+```
+
 including:
 - `context.md`
 - `capabilities.md`
@@ -139,6 +145,8 @@ When a broader design is present, `wrkflw` also creates shared normalization art
 including:
 - `master-design.md`
 - `epic-candidates.md`
+
+The initiative index tracks each workflow slug as a separate epic lane with its current stage, design source, recorded OpenSpec change, and supporting docs.
 
 ### Diagram history and compact vs expanded views
 
@@ -484,7 +492,7 @@ For a normal story, the flow is usually:
 When the workflow reaches `spec-authoring` and OpenSpec is available, `wrkflw` creates or updates an OpenSpec change under:
 
 ```text
-openspec/changes/<change-slug>/
+openspec/changes/<workflow-slug>-<story-slug>/
 ```
 
 On final closeout, it archives the change automatically.
