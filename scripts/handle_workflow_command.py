@@ -361,6 +361,49 @@ def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
         write_kv_list(links_path, "Links", ["Tracker", "Design seed", "OpenSpec change", "PRs", "Docs"], links)
 
 
+def active_story_name(state: dict[str, str]) -> str:
+    active_items = [item.strip() for item in parse_items(state.get("Active items", "")) if item.strip()]
+    return active_items[0] if active_items else ""
+
+
+def detect_artifact_drift(
+    root: Path,
+    workflow_slug: str,
+    stage: str,
+    state: dict[str, str],
+) -> tuple[bool, str]:
+    if stage not in {"release-planning", "done"}:
+        return False, ""
+
+    contract = refresh_workflow_contract(root, workflow_slug)
+    required = contract.get("OpenSpec required", "true").lower() in {"true", "1", "yes", "on"}
+    initialized = contract.get("OpenSpec initialized", "false").lower() in {"true", "1", "yes", "on"}
+    waived = contract.get("OpenSpec waived", "false").lower() in {"true", "1", "yes", "on"}
+    if not required or waived or not initialized:
+        return False, ""
+
+    links = parse_kv_list(root / ".workflow" / workflow_slug / "links.md")
+    change_ref = links.get("OpenSpec change", "").strip()
+    if not change_ref:
+        return True, "OpenSpec is required, but no active OpenSpec change is recorded in links.md."
+
+    if "openspec/changes/archive/" in change_ref.replace("\\", "/") and stage != "done":
+        return True, "The workflow points at an archived OpenSpec change before completion. Refresh the active OpenSpec change before continuing."
+
+    change_dir = root / change_ref
+    proposal_path = change_dir / "proposal.md"
+    if not proposal_path.exists():
+        return True, f"The recorded OpenSpec change `{change_ref}` is missing `proposal.md`. Refresh OpenSpec before continuing."
+
+    active_story = active_story_name(state)
+    if active_story:
+        proposal_text = proposal_path.read_text(encoding="utf-8")
+        if active_story not in proposal_text:
+            return True, f"The active OpenSpec change `{change_ref}` does not mention the active workflow story `{active_story}`. Reconcile workflow/OpenSpec state before continuing."
+
+    return False, ""
+
+
 def apply_stage_entry_effects(stage: str, root: Path, workflow_slug: str) -> None:
     if stage == "story-slicing":
         maybe_generate_story_slices(root, workflow_slug)
@@ -369,6 +412,7 @@ def apply_stage_entry_effects(stage: str, root: Path, workflow_slug: str) -> Non
     if stage == "spec-authoring":
         maybe_bridge_to_openspec(root, workflow_slug)
     if stage == "release-planning":
+        maybe_bridge_to_openspec(root, workflow_slug)
         maybe_generate_release_plan(root, workflow_slug)
     if stage == "done":
         maybe_archive_openspec(root, workflow_slug)
@@ -389,7 +433,21 @@ def enter_stage(
             state["Blocked reason"] = reason
             state["Next action"] = "initialize OpenSpec or use an explicit override before continuing"
             return state
+        if stage == "done":
+            drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)
+            if drift:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = drift_reason
+                state["Next action"] = "run wrkflw:openspec-sync or wrkflw:reconcile before marking the workflow done"
+                return state
         apply_stage_entry_effects(stage, root, workflow_slug)
+        if stage != "done":
+            drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)
+            if drift:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = drift_reason
+                state["Next action"] = "run wrkflw:openspec-sync or wrkflw:reconcile before continuing"
+                return state
     state["Human gate status"] = "pending" if stage in GATED_STAGES else "approved"
     state["Blocked reason"] = ""
     state["Next action"] = NEXT_ACTION.get(stage, "")
