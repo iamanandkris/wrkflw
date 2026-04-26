@@ -169,6 +169,48 @@ def parse_execution_board(wf: Path) -> dict[str, str]:
     return values
 
 
+def parse_assignment_rows(wf: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for raw_line in read_text(wf / "agent-assignments.md").splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|") or "---" in stripped:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) >= 6 and parts[0] != "Role":
+            rows.append(
+                {
+                    "Role": parts[0],
+                    "Slot": parts[1],
+                    "Responsibility Focus": parts[2],
+                    "Default Ownership": parts[3],
+                    "Allowed Write Paths": parts[4],
+                    "Status": parts[5],
+                }
+            )
+    return rows
+
+
+def implementer_scope_lines(wf: Path) -> list[str]:
+    lines: list[str] = []
+    for row in parse_assignment_rows(wf):
+        if row["Role"].startswith("Implementer"):
+            lines.append(f"{row['Role']}: {row.get('Allowed Write Paths', '-') or '-'}")
+    return lines or ["Implementer scopes: -"]
+
+
+def execution_lane_lines(wf: Path) -> list[str]:
+    lines: list[str] = []
+    for raw_line in read_text(wf / "execution-board.md").splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|") or "---" in stripped:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if len(parts) >= 6 and parts[0] not in {"Work Item"}:
+            if parts[0].startswith("Implementation slice"):
+                lines.append(f"{parts[0]} [{parts[2]}] {parts[1]}")
+    return lines or ["Implementation lanes: -"]
+
+
 def parse_review_log_summary(wf: Path) -> tuple[int, str]:
     count = 0
     roles: list[str] = []
@@ -837,6 +879,8 @@ def write_flow_diagram(
             f"Handoff: {board.get('Current handoff', '-') or '-'}",
             f"Review entries: {review_count} ({review_roles})",
             f"Runtime review roles: {runtime.get('Recorded review roles', '-') or '-'}",
+            *execution_lane_lines(wf),
+            *implementer_scope_lines(wf),
             *active_task_lines,
             "end note",
             *story_flow_notes(stories, state, progress, touched_order, config.get("flow.completedStoriesView", "expanded")),
@@ -913,6 +957,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Active owner: {board.get("Active owner", "-") or "-"}',
         f'  Current handoff: {board.get("Current handoff", "-") or "-"}',
         f'  Review entries: {review_count} ({review_roles})',
+        *[f"  {line}" for line in execution_lane_lines(wf)],
+        *[f"  {line}" for line in implementer_scope_lines(wf)],
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',
         f'  Blocked: {state.get("Blocked reason", "-") or "-"}',
         f'  AutoApprove current gate: {"on" if gates.get(state.get("Current stage", ""), False) else "off"}',

@@ -141,7 +141,8 @@ def default_execution_board(slug: str) -> str:
 | --- | --- | --- | --- | --- | --- |
 | Story scope and acceptance review | Product Owner | pending | | Reviewer QA | |
 | Technical decomposition | Tech Lead | pending | | Product Owner | |
-| Implementation slice | Implementer | pending | | Reviewer QA | |
+| Implementation slice 1 | Implementer 1 | pending | | Reviewer QA | |
+| Implementation slice 2 | Implementer 2 | optional | | Reviewer QA | |
 | Review and challenge | Reviewer QA | pending | | Product Owner | |
 
 ## Status Vocabulary
