@@ -178,6 +178,23 @@ def section_csv(sections: dict[str, list[str]], name: str) -> list[str]:
     return values
 
 
+def capability_coverage_values(
+    sections: dict[str, list[str]],
+    capability_inventory: list[dict[str, object]],
+) -> list[str]:
+    capability_names = {str(capability["name"]) for capability in capability_inventory}
+    values: list[str] = []
+    for line in sections.get("Capability Coverage", []):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("- "):
+            continue
+        if stripped in capability_names:
+            values.append(stripped)
+        else:
+            values.extend(part.strip() for part in stripped.split(",") if part.strip())
+    return values
+
+
 def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]:
     mode = "general-delivery"
     capabilities: list[dict[str, object]] = []
@@ -290,12 +307,12 @@ def main() -> int:
     story_enrichment = read_text(story_file_path).strip()
     enrichment_sections = parse_markdown_sections(story_enrichment)
     story_scope = section_paragraph(enrichment_sections, "Scope")
-    story_capability_coverage = section_csv(enrichment_sections, "Capability Coverage")
+    capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
+    story_capability_coverage = capability_coverage_values(enrichment_sections, capability_inventory)
     story_acceptance = section_bullets(enrichment_sections, "Acceptance Criteria")
     story_test_expectations = section_bullets(enrichment_sections, "Test Expectations")
     story_risks = section_bullets(enrichment_sections, "Risks")
     workflow_spec = read_text(story_spec_path).strip()
-    capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
     if story_capability_coverage:
         explicit = {name.lower(): name for name in story_capability_coverage}
         covered_capabilities = [capability for capability in capability_inventory if str(capability["name"]).lower() in explicit]

@@ -104,7 +104,12 @@ def parse_capabilities(path: Path) -> dict[str, dict[str, object]]:
     return capabilities
 
 
-def capability_names(raw: str) -> list[str]:
+def capability_names(raw: str, capabilities: dict[str, dict[str, object]]) -> list[str]:
+    cleaned = raw.strip()
+    if not cleaned:
+        return []
+    if cleaned in capabilities:
+        return [cleaned]
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
@@ -241,7 +246,7 @@ def main() -> int:
     num = story_number(active_story)
     story = parse_story_block(read_text(wf / "stories.md"), active_story)
     capabilities = parse_capabilities(wf / "capabilities.md")
-    covered = capability_names(story["covers"])
+    covered = capability_names(story["covers"], capabilities)
 
     acceptance: list[str] = []
     tests: list[str] = []
