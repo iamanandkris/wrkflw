@@ -39,6 +39,10 @@ def parse_state(path: Path) -> dict[str, str]:
     return values
 
 
+def openspec_lane_active(contract: dict[str, str]) -> bool:
+    return contract.get("OpenSpec lane active", "false").strip().lower() in {"true", "1", "yes", "on"}
+
+
 def initiative_status(state: dict[str, str]) -> str:
     stage = state.get("Current stage", "").strip() or "discuss"
     gate = state.get("Human gate status", "").strip()
@@ -252,6 +256,11 @@ def main() -> int:
     state_path = workflow_dir / "state.md"
     links_path = workflow_dir / "links.md"
     stories_path = workflow_dir / "stories.md"
+    contract = parse_kv_list(workflow_dir / "workflow-contract.md")
+
+    if not openspec_lane_active(contract):
+        print("openspec lane inactive")
+        return 0
 
     active_items = parse_state_active_item(state_path)
     active_story = active_items.split(",", 1)[0].strip() if active_items else "Story 1"

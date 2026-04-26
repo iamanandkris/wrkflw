@@ -170,6 +170,7 @@ def main() -> int:
         "- OpenSpec required: true\n"
         "- OpenSpec initialized: false\n"
         "- OpenSpec waived: false\n"
+        "- OpenSpec lane active: false\n"
         "- OpenSpec waiver reason:\n",
     )
     write_if_missing(

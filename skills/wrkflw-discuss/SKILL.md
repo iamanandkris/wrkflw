@@ -113,6 +113,7 @@ Workflow contract should capture:
 - `OpenSpec required: true|false`
 - `OpenSpec initialized: true|false`
 - `OpenSpec waived: true|false`
+- `OpenSpec lane active: true|false`
 - `OpenSpec waiver reason: ...`
 
 The workflow should also maintain a live PlantUML diagram at:
@@ -181,6 +182,7 @@ Behavior expectations:
 - `wrkflw:override "..."` should be reserved for explicit user waivers of a major workflow requirement such as proceeding without OpenSpec.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
+- Keep OpenSpec execution single-lane by default at the initiative level: one epic workflow may own the active OpenSpec lane at a time, while other epics remain workflow-only until they reach their own active `spec-authoring` pass.
 
 Dependency convention:
 - Prefer declaring dependencies in `stories.md` with a line such as `Depends on: Story 1, Story 3`.
@@ -191,6 +193,7 @@ OpenSpec handoff convention:
 - OpenSpec owns the spec artifacts during `spec-authoring`.
 - When `spec-authoring` is reached and OpenSpec is available, prefer creating or updating a real change in `openspec/changes/<workflow-slug>-<story-slug>/`.
 - Prefix OpenSpec change slugs with the workflow slug so parallel epic workflows do not collide, for example `openspec/changes/http-surface-story-1-http-api`.
+- Do not pre-create OpenSpec changes across every epic lane during initialization. Park non-active epics as workflow-only until they become the active execution lane.
 - Record the active OpenSpec change in `.workflow/<slug>/links.md`.
 - When moving to the next story, create a new OpenSpec change for that story and keep previous changes as historical context. Continuity comes from:
   - the workflow artifacts in `.workflow/<slug>/`

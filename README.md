@@ -324,6 +324,7 @@ Default example:
 - OpenSpec required: true
 - OpenSpec initialized: false
 - OpenSpec waived: false
+- OpenSpec lane active: false
 - OpenSpec waiver reason:
 ```
 
@@ -517,6 +518,11 @@ When the workflow reaches `spec-authoring` and OpenSpec is available, `wrkflw` c
 ```text
 openspec/changes/<workflow-slug>-<story-slug>/
 ```
+
+OpenSpec execution is single-lane by default at the initiative level:
+- one epic workflow may own the active OpenSpec lane at a time
+- other epic workflows stay workflow-only until they become the active execution lane
+- `wrkflw` should not pre-create OpenSpec changes across every epic lane during initialization
 
 On final closeout, it archives the change automatically.
 

@@ -93,6 +93,7 @@ CONTRACT_FIELDS = [
     "OpenSpec initialized",
     "OpenSpec waived",
     "OpenSpec waiver reason",
+    "OpenSpec lane active",
 ]
 
 STAGE_ALIASES = {
@@ -347,8 +348,51 @@ def refresh_workflow_contract(root: Path, workflow_slug: str) -> dict[str, str]:
     contract["OpenSpec initialized"] = "true" if detect_openspec_initialized(root) else "false"
     if not contract["OpenSpec waived"]:
         contract["OpenSpec waived"] = "false"
+    if not contract["OpenSpec lane active"]:
+        contract["OpenSpec lane active"] = "false"
     write_workflow_contract(root, workflow_slug, contract)
     return contract
+
+
+def workflow_slugs(root: Path) -> list[str]:
+    workflow_root = root / ".workflow"
+    if not workflow_root.exists():
+        return []
+    return sorted(
+        path.name
+        for path in workflow_root.iterdir()
+        if path.is_dir() and not path.name.startswith("_")
+    )
+
+
+def openspec_lane_active(contract: dict[str, str]) -> bool:
+    return contract.get("OpenSpec lane active", "false").lower() in {"true", "1", "yes", "on"}
+
+
+def active_openspec_lanes(root: Path, exclude_slug: str | None = None) -> list[str]:
+    active: list[str] = []
+    for slug in workflow_slugs(root):
+        if exclude_slug and slug == exclude_slug:
+            continue
+        contract = read_workflow_contract(root, slug)
+        state = parse_state(root / ".workflow" / slug / "state.md")
+        if openspec_lane_active(contract) and ensure_stage(state.get("Current stage") or "discuss") != "done":
+            active.append(slug)
+    return active
+
+
+def set_openspec_lane_active(root: Path, workflow_slug: str, active: bool) -> None:
+    contract = refresh_workflow_contract(root, workflow_slug)
+    contract["OpenSpec lane active"] = "true" if active else "false"
+    write_workflow_contract(root, workflow_slug, contract)
+
+
+def ensure_openspec_lane(root: Path, workflow_slug: str) -> tuple[bool, str]:
+    others = active_openspec_lanes(root, exclude_slug=workflow_slug)
+    if others:
+        return False, f"Another epic lane already owns active OpenSpec execution: {', '.join(others)}"
+    set_openspec_lane_active(root, workflow_slug, True)
+    return True, ""
 
 
 def openspec_block_required(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
@@ -367,6 +411,9 @@ def maybe_bridge_to_openspec(root: Path, workflow_slug: str) -> None:
     openspec_dir = root / "openspec"
     bridge_script = Path(__file__).with_name("bridge_workflow_to_openspec.py")
     if not openspec_dir.exists() or not bridge_script.exists():
+        return
+    contract = refresh_workflow_contract(root, workflow_slug)
+    if not openspec_lane_active(contract):
         return
     run(
         ["python3", str(bridge_script), "--slug", workflow_slug, "--root", str(root)],
@@ -483,6 +530,7 @@ def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
     if archived_matches:
         links["OpenSpec change"] = str(archived_matches[-1].relative_to(root))
         write_kv_list(links_path, "Links", ["Tracker", "Design seed", "OpenSpec change", "PRs", "Docs"], links)
+    set_openspec_lane_active(root, workflow_slug, False)
 
 
 def active_story_name(state: dict[str, str]) -> str:
@@ -551,6 +599,13 @@ def enter_stage(
     stage = ensure_stage(stage)
     state["Current stage"] = stage
     if root is not None and workflow_slug is not None:
+        if stage == "spec-authoring":
+            activated, activation_reason = ensure_openspec_lane(root, workflow_slug)
+            if not activated:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = activation_reason
+                state["Next action"] = "finish or deactivate the currently active OpenSpec lane before advancing this epic"
+                return state
         blocked, reason = openspec_block_required(root, workflow_slug, stage)
         if blocked:
             state["Human gate status"] = "blocked"
