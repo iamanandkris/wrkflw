@@ -121,6 +121,7 @@ Behavior expectations:
   - a shared normalized design under `.workflow/_normalized/`
   - epic candidates inferred from the broader design
   - an epic-specific `design-slice.md` inside `.workflow/<slug>/`
+  - section-aware epic candidates that preserve capability, actor, architecture, and operational evidence instead of flattening the raw design into one mixed scope bucket
 - `wrkflw:discuss` should use repository evidence such as `README.md`, build files, source entrypoints, tests, and active OpenSpec artifacts as first-pass evidence of current behavior.
 - `wrkflw:discuss` should summarize the current implementation shape, capability coverage, and obvious gaps before story slicing.
 - `wrkflw:discuss` should reconcile observed code with the design seed or design document and surface conflicts explicitly before moving into epic shaping or story slicing.

@@ -136,6 +136,15 @@ def extract_labeled_block(text: str, labels: list[str]) -> str:
     return "\n".join(captured).strip()
 
 
+def extract_labeled_blocks(text: str, labels: list[str]) -> list[str]:
+    blocks: list[str] = []
+    for label in labels:
+        block = extract_labeled_block(text, [label])
+        if block:
+            blocks.append(block)
+    return blocks
+
+
 def extract_bullets(text: str) -> list[str]:
     bullets: list[str] = []
     for raw_line in text.splitlines():
@@ -149,6 +158,13 @@ def extract_bullets(text: str) -> list[str]:
         if numbered:
             bullets.append(numbered.group(1).strip())
     return bullets
+
+
+def extract_labeled_bullets(text: str, labels: list[str]) -> list[str]:
+    bullets: list[str] = []
+    for block in extract_labeled_blocks(text, labels):
+        bullets.extend(extract_bullets(block))
+    return dedupe(bullets)
 
 
 def dedupe(items: list[str]) -> list[str]:
@@ -208,55 +224,121 @@ def summarize_paragraph(text: str, fallback: str = "-") -> str:
     return paragraph.replace("\n", " ").strip()
 
 
-def infer_capability_clusters(sections: dict[str, str]) -> list[dict[str, str]]:
-    feature_bullets = pick_bullets(sections, ["what it does", "capabilities", "features"])
-    if not feature_bullets:
-        feature_bullets = pick_bullets(sections, ["app overview", "overview"])
+CLUSTER_SPECS = [
+    {
+        "slug": "authorization-core",
+        "title": "Authorization Core",
+        "scope_terms": ["permission", "grant", "role", "membership", "authorize", "rbac", "abac", "decision", "inherit"],
+        "notes_terms": ["default-deny", "precedence", "denyfinal", "allowfinal", "predicate", "querymodifier"],
+    },
+    {
+        "slug": "entity-modeling",
+        "title": "Entity Modeling",
+        "scope_terms": ["entity", "schema", "parent-child", "hierarch", "attribute", "resource"],
+        "notes_terms": ["jsonb", "recursive cte", "entitytype", "attribute values"],
+    },
+    {
+        "slug": "admin-and-experience",
+        "title": "Admin Experience",
+        "scope_terms": ["ui", "admin", "assistant", "conversation", "form-based", "model complex"],
+        "notes_terms": ["react", "vite", "typescript", "spa", "multi-day ai conversations"],
+    },
+    {
+        "slug": "audit-and-compliance",
+        "title": "Audit And Compliance",
+        "scope_terms": ["audit", "encrypted", "compliance", "access attempts", "sensitive data"],
+        "notes_terms": ["full-text", "gin indexes", "audit trail"],
+    },
+    {
+        "slug": "runtime-and-operations",
+        "title": "Runtime And Operations",
+        "scope_terms": ["rate", "quota", "cache", "redis", "kubernetes", "scale", "pub/sub", "consumption", "observability"],
+        "notes_terms": ["hikaricp", "pool", "otel", "opentelemetry", "cluster", "docker", "helm", "postgresql", "testcontainers"],
+    },
+]
 
-    grouped: dict[str, list[str]] = {
-        "authorization-core": [],
-        "entity-modeling": [],
-        "admin-and-experience": [],
-        "audit-and-compliance": [],
-        "runtime-and-operations": [],
-    }
+
+def score_text_for_cluster(text: str, terms: list[str]) -> int:
+    lower = text.lower()
+    return sum(1 for term in terms if term in lower)
+
+
+def match_cluster(text: str, kind: str = "scope") -> str | None:
+    best_slug: str | None = None
+    best_score = 0
+    for spec in CLUSTER_SPECS:
+        terms = spec["scope_terms"] if kind == "scope" else spec["notes_terms"] + spec["scope_terms"]
+        score = score_text_for_cluster(text, terms)
+        if score > best_score:
+            best_slug = spec["slug"]
+            best_score = score
+    return best_slug
+
+
+def cluster_title(slug: str) -> str:
+    for spec in CLUSTER_SPECS:
+        if spec["slug"] == slug:
+            return spec["title"]
+    return title_from_phrase(slug)
+
+
+def build_cluster_details(scope_items: list[str], note_items: list[str]) -> str:
+    lines: list[str] = []
+    if scope_items:
+        lines.append("- Primary scope:")
+        lines.extend(f"  - {item}" for item in scope_items)
+    if note_items:
+        lines.append("- Supporting architecture and delivery notes:")
+        lines.extend(f"  - {item}" for item in note_items[:4])
+    return "\n".join(lines)
+
+
+def infer_capability_clusters(text: str, sections: dict[str, str]) -> list[dict[str, str]]:
+    feature_bullets = extract_labeled_bullets(text, ["What It Does"])
+    if not feature_bullets:
+        feature_bullets = pick_bullets(sections, ["capabilities", "features"])
+    actor_bullets = extract_labeled_bullets(text, ["Who Uses It"])
+    decision_bullets = extract_labeled_bullets(text, ["Key Architectural Decisions", "Why These Choices", "Compatibility Caveats", "Must-Follow Patterns"])
+    overview = pick_section(sections, ["app overview", "overview"])
+
+    grouped_scope: dict[str, list[str]] = {spec["slug"]: [] for spec in CLUSTER_SPECS}
+    grouped_notes: dict[str, list[str]] = {spec["slug"]: [] for spec in CLUSTER_SPECS}
 
     for bullet in feature_bullets:
-        lower = bullet.lower()
-        if any(token in lower for token in ["role", "grant", "permission", "authorize", "abac", "rbac", "decision", "inherit"]):
-            grouped["authorization-core"].append(bullet)
-        elif any(token in lower for token in ["entity", "schema", "parent-child", "hierarch", "attribute"]):
-            grouped["entity-modeling"].append(bullet)
-        elif any(token in lower for token in ["ui", "admin", "assistant", "conversation", "model complex"]):
-            grouped["admin-and-experience"].append(bullet)
-        elif any(token in lower for token in ["audit", "encrypted", "compliance", "access attempts"]):
-            grouped["audit-and-compliance"].append(bullet)
-        elif any(token in lower for token in ["rate", "quota", "cache", "redis", "kubernetes", "scale", "pub/sub", "consumption"]):
-            grouped["runtime-and-operations"].append(bullet)
-        else:
-            grouped["authorization-core"].append(bullet)
+        slug = match_cluster(bullet, "scope") or "authorization-core"
+        grouped_scope[slug].append(bullet)
 
-    labels = {
-        "authorization-core": "Authorization Core",
-        "entity-modeling": "Entity Modeling",
-        "admin-and-experience": "Admin Experience",
-        "audit-and-compliance": "Audit And Compliance",
-        "runtime-and-operations": "Runtime And Operations",
-    }
+    for bullet in actor_bullets:
+        slug = match_cluster(bullet, "scope")
+        if slug:
+            grouped_notes[slug].append(f"Actor focus: {bullet}")
+
+    for bullet in decision_bullets:
+        slug = match_cluster(bullet, "notes")
+        if slug:
+            grouped_notes[slug].append(bullet)
+
+    if overview:
+        grouped_notes["authorization-core"].append(f"System framing: {summarize_paragraph(overview)}")
 
     clusters: list[dict[str, str]] = []
-    for key, items in grouped.items():
-        if not items:
+    for spec in CLUSTER_SPECS:
+        slug = spec["slug"]
+        scope_items = dedupe(grouped_scope[slug])
+        note_items = dedupe(grouped_notes[slug])
+        if not scope_items and not note_items:
             continue
-        summary = items[0]
-        if len(items) > 1:
-            summary = f"{items[0]} Additional scope includes: " + "; ".join(items[1:3])
+        summary = scope_items[0] if scope_items else note_items[0]
+        if scope_items and len(scope_items) > 1:
+            summary = f"{scope_items[0]} Additional scope includes: " + "; ".join(scope_items[1:3])
+        elif note_items:
+            summary = f"{summary} Use the normalized design notes to shape the first story slice."
         clusters.append(
             {
-                "slug": key,
-                "title": labels[key],
+                "slug": slug,
+                "title": spec["title"],
                 "summary": summary,
-                "details": "\n".join(f"- {item}" for item in items),
+                "details": build_cluster_details(scope_items, note_items),
             }
         )
 
@@ -272,7 +354,7 @@ def infer_capability_clusters(sections: dict[str, str]) -> list[dict[str, str]]:
                 "slug": slugify(key),
                 "title": title_from_phrase(key),
                 "summary": summarize_paragraph(value),
-                "details": "\n".join(f"- {bullet}" for bullet in extract_bullets(value)[:4]) or f"- {summarize_paragraph(value)}",
+                "details": build_cluster_details(extract_bullets(value)[:4], []),
             }
         )
     return fallback_sections[:5]
@@ -306,11 +388,14 @@ def extract_goal(text: str, sections: dict[str, str]) -> str:
     explicit = pick_section(sections, ["goal", "objective", "outcome"])
     if explicit:
         return explicit
+    overview = pick_section(sections, ["app overview", "overview"])
+    if overview:
+        return f"Turn the design into workflow-ready implementation slices without losing the core system intent: {summarize_paragraph(overview)}"
     what_it_does = extract_labeled_block(text, ["What It Does"])
     if what_it_does:
         bullets = extract_bullets(what_it_does)
         if bullets:
-            return bullets[0]
+            return f"Turn the design into workflow-ready implementation slices starting with: {bullets[0]}"
     return "Use the normalized design slice to derive the first workflow-ready epic."
 
 
@@ -537,11 +622,7 @@ def main() -> int:
     if labeled_decisions:
         decisions = dedupe(labeled_decisions + decisions)
 
-    clusters = infer_capability_clusters(sections)
-    labeled_features = extract_bullets(extract_labeled_block(design_text, ["What It Does"]))
-    if labeled_features:
-        feature_sections = {"what it does": "\n".join(f"- {bullet}" for bullet in labeled_features)}
-        clusters = infer_capability_clusters(feature_sections)
+    clusters = infer_capability_clusters(design_text, sections)
 
     normalized_root = root / ".workflow" / "_normalized"
     normalized_root.mkdir(parents=True, exist_ok=True)

@@ -108,6 +108,7 @@ wrkflw:discuss "Start this workflow from the design in docs/design.md"
 If the repo contains `design.md` or `docs/design.md`, `wrkflw` will use that as a seed automatically.
 
 If the design document is broad or not already workflow-shaped, `wrkflw` first generates normalized planning artifacts and an epic-specific design slice before it uses the design for workflow shaping.
+That normalization pass should preserve section semantics where possible, so overview, actor, capability, architecture, and operational sections can map into cleaner epic candidates instead of one flattened backlog.
 
 The workflow creates artifacts under:
 
