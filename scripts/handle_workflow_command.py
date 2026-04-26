@@ -645,17 +645,29 @@ def team_role_directives(directives: dict[str, str]) -> dict[str, str]:
     return role_updates
 
 
+def team_role_ownership_directives(directives: dict[str, str]) -> dict[str, str]:
+    ownership_updates: dict[str, str] = {}
+    for key, value in directives.items():
+        normalized = key.strip().lower()
+        if normalized.endswith(" ownership"):
+            role = canonical_role_name(normalized[: -len(" ownership")])
+            if role in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
+                ownership_updates[role] = value
+    return ownership_updates
+
+
 def parse_assignment_rows(path: Path) -> dict[str, dict[str, str]]:
     rows: dict[str, dict[str, str]] = {}
     for parts in parse_markdown_table_rows(path):
-        if len(parts) < 5:
+        if len(parts) < 6:
             continue
         rows[parts[0]] = {
             "Role": parts[0],
             "Slot": parts[1],
             "Responsibility Focus": parts[2],
             "Default Ownership": parts[3],
-            "Status": parts[4],
+            "Allowed Write Paths": parts[4],
+            "Status": parts[5],
         }
     return rows
 
@@ -669,15 +681,15 @@ def write_assignment_rows(path: Path, workflow_slug: str, rows: dict[str, dict[s
         "- Team config source: `.workflow/team-config.md`",
         f"- Override source: `.workflow/{workflow_slug}/team-overrides.md`",
         "",
-        "| Role | Slot | Responsibility Focus | Default Ownership | Status |",
-        "| --- | --- | --- | --- | --- |",
+        "| Role | Slot | Responsibility Focus | Default Ownership | Allowed Write Paths | Status |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for role in order:
         row = rows.get(role)
         if not row:
             continue
         output.append(
-            f"| {row['Role']} | {row['Slot']} | {row['Responsibility Focus']} | {row['Default Ownership']} | {row['Status']} |"
+            f"| {row['Role']} | {row['Slot']} | {row['Responsibility Focus']} | {row['Default Ownership']} | {row.get('Allowed Write Paths', '')} | {row['Status']} |"
         )
     output.extend(
         [
@@ -687,10 +699,41 @@ def write_assignment_rows(path: Path, workflow_slug: str, rows: dict[str, dict[s
             "- Do not let every role write to every file.",
             "- Treat workflow/OpenSpec/design artifacts as the shared contract.",
             "- Keep implementer ownership disjoint when parallel implementation slots are greater than 1.",
+            "- Express write scope as comma-separated path prefixes in `Allowed Write Paths`.",
             "",
         ]
     )
     path.write_text("\n".join(output), encoding="utf-8")
+
+
+def parse_allowed_paths(value: str) -> list[str]:
+    return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
+
+
+def paths_overlap(left: str, right: str) -> bool:
+    a = left.rstrip("/")
+    b = right.rstrip("/")
+    if not a or not b:
+        return False
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def implementer_scope_conflict(rows: dict[str, dict[str, str]], parallel_slots: int) -> tuple[bool, str]:
+    if parallel_slots <= 1:
+        return False, ""
+    lane1 = rows.get("Implementer 1")
+    lane2 = rows.get("Implementer 2")
+    if not lane1 or not lane2:
+        return True, "Parallel implementer lanes are enabled, but implementer assignments are incomplete."
+    paths1 = parse_allowed_paths(lane1.get("Allowed Write Paths", ""))
+    paths2 = parse_allowed_paths(lane2.get("Allowed Write Paths", ""))
+    if not paths1 or not paths2:
+        return True, "Parallel implementer lanes require explicit allowed write paths for both Implementer 1 and Implementer 2."
+    for left in paths1:
+        for right in paths2:
+            if paths_overlap(left, right):
+                return True, f"Parallel implementer ownership overlaps: `{left}` conflicts with `{right}`."
+    return False, ""
 
 
 def append_review_log_entry(
@@ -914,6 +957,7 @@ def handle_assign(
     assignments_path = root / ".workflow" / workflow_slug / "agent-assignments.md"
     rows = parse_assignment_rows(assignments_path)
     applied: list[str] = []
+    ownership_updates = team_role_ownership_directives(directives)
 
     for role, value in team_role_directives(directives).items():
         row = rows.get(role, {
@@ -921,12 +965,27 @@ def handle_assign(
             "Slot": role_slot(role),
             "Responsibility Focus": value,
             "Default Ownership": "assigned scope only",
+            "Allowed Write Paths": "",
             "Status": "assigned",
         })
         row["Responsibility Focus"] = value
         row["Status"] = "assigned"
         rows[role] = row
         applied.append(f"{role} assigned")
+
+    for role, value in ownership_updates.items():
+        row = rows.get(role, {
+            "Role": role,
+            "Slot": role_slot(role),
+            "Responsibility Focus": "",
+            "Default Ownership": "assigned scope only",
+            "Allowed Write Paths": "",
+            "Status": "assigned",
+        })
+        row["Allowed Write Paths"] = value
+        row["Status"] = "assigned"
+        rows[role] = row
+        applied.append(f"{role} write scope updated")
 
     if directives.get("default ownership"):
         for role in ["Implementer 1", "Implementer 2"]:
@@ -1023,6 +1082,21 @@ def handle_team_run(
         return state
     if current == "implementation-planning":
         maybe_generate_implementation_plan(root, workflow_slug)
+    assignment_rows = parse_assignment_rows(root / ".workflow" / workflow_slug / "agent-assignments.md")
+    parallel_slots = 1
+    try:
+        parallel_slots = max(1, int(parse_team_settings(root, workflow_slug).get("Parallel implementation slots", "1").strip()))
+    except ValueError:
+        parallel_slots = 1
+    blocked, scope_reason = implementer_scope_conflict(assignment_rows, parallel_slots)
+    if blocked:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = scope_reason
+        state["Next action"] = "assign explicit, disjoint implementer write scopes before delegated team execution continues"
+        return state
+    if state.get("Human gate status") == "blocked" and "Parallel implementer ownership overlaps:" in state.get("Blocked reason", ""):
+        state["Human gate status"] = "approved"
+        state["Blocked reason"] = ""
     maybe_generate_team_dispatch(root, workflow_slug)
     set_runtime_mode(root, workflow_slug, "delegated-agent-team", "explicit wrkflw:team-run")
     state["Item note"] = f"team dispatch prepared for {active_story}"

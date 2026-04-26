@@ -214,6 +214,7 @@ Behavior expectations:
 - `wrkflw:override "..."` should be reserved for explicit user waivers of a major workflow requirement such as proceeding without OpenSpec.
 - `wrkflw:staff "..."` should treat the reason text as staffing directives such as `team size: 5; parallel slots: 2; Implementer 2: own UI slice`.
 - `wrkflw:assign "..."` should treat the reason text as role-to-responsibility mappings for `agent-assignments.md`.
+- `wrkflw:assign "..."` should also accept explicit ownership directives such as `Implementer 1 ownership: src/session/state, test/session/state`.
 - `wrkflw:challenge "..."` should support structured review evidence such as `role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete`.
 - `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
 - `wrkflw:team-run "..."` should only activate when the workflow already has an active story and is at `implementation-planning`, `implementation`, or `review`.
@@ -225,6 +226,7 @@ Behavior expectations:
   - `Reviewer QA`: use a `default` agent for review/challenge findings
 - do not let spawned agents update canonical `state.md` directly.
 - do not spawn implementer lanes in parallel unless ownership is clearly disjoint in `agent-assignments.md`.
+- `wrkflw:team-run` should hard-block when parallel implementer lanes are enabled but their `Allowed Write Paths` are missing or overlap.
 - prefer spawning Product Owner and Tech Lead in parallel with implementer work only when their tasks are not blocking the next step.
 - after delegated work returns, synchronize evidence back into `execution-board.md` and `review-log.md`, then use the normal `wrkflw` commands to advance or block the workflow.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.

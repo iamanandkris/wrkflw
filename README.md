@@ -232,6 +232,7 @@ Team control commands:
   - update team size, parallel slots, and role override notes in `team-config.md` or `team-overrides.md`
 - `wrkflw:assign`
   - update `agent-assignments.md` with role ownership for the active workflow lane
+  - include explicit write scopes such as `Implementer 1 ownership: src/session/state, test/session/state`
 - `wrkflw:challenge`
   - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
 - `wrkflw:review-sync`
@@ -277,6 +278,7 @@ Execution model:
 Current limit:
 - the Python plugin scripts generate the dispatch contract and packets
 - actual `spawn_agent` calls happen in Codex when `wrkflw:team-run` is invoked, not inside the Python scripts themselves
+- parallel implementer lanes must have explicit, disjoint `Allowed Write Paths` in `agent-assignments.md` or `wrkflw:team-run` will block
 
 ### Diagram history and compact vs expanded views
 

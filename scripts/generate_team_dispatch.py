@@ -69,7 +69,7 @@ def story_number(name: str) -> str | None:
 def parse_assignment_rows(path: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for parts in parse_markdown_table_rows(path):
-        if len(parts) < 5:
+        if len(parts) < 6:
             continue
         rows.append(
             {
@@ -77,7 +77,8 @@ def parse_assignment_rows(path: Path) -> list[dict[str, str]]:
                 "Slot": parts[1],
                 "Responsibility Focus": parts[2],
                 "Default Ownership": parts[3],
-                "Status": parts[4],
+                "Allowed Write Paths": parts[4],
+                "Status": parts[5],
             }
         )
     return rows
@@ -178,6 +179,7 @@ def packet_body(
         f"- Parallel implementation slots: {team.get('Parallel implementation slots', '-') or '-'}",
         f"- Responsibility focus: {row['Responsibility Focus']}",
         f"- Default ownership: {row['Default Ownership']}",
+        f"- Allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
         f"- Existing review roles: {', '.join(review_roles) if review_roles else '-'}",
         "",
         "## Shared Inputs",
@@ -223,6 +225,7 @@ def packet_body(
             "## Execution Rules",
             "- You are not alone in the codebase; accommodate other role lanes instead of reverting them.",
             "- Keep changes within your role ownership and the active story boundary.",
+            f"- Stay inside these allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
             "- Do not edit canonical `state.md` directly.",
             "- Surface findings through `review-log.md` or `execution-board.md` notes as appropriate.",
             "",
