@@ -34,6 +34,8 @@ GATED_STAGES = {
 GATE_STATES = {"pending", "approved", "blocked", "rejected"}
 
 STAGE_ALIASES_MAP = {
+    "epic-complete": "done",
+    "epic complete": "done",
     "epic-shaped": "epic-shaping",
     "epic shaped": "epic-shaping",
     "story-sliced": "story-slicing",
@@ -49,6 +51,7 @@ GATE_STATUS_ALIASES = {
     "awaiting epic and story approval": "pending",
     "awaiting story approval": "pending",
     "awaiting review": "pending",
+    "epic approved and complete": "approved",
 }
 
 
@@ -75,6 +78,9 @@ def normalize_state(state: dict[str, str]) -> dict[str, str]:
     normalized["Current stage"] = normalize_stage_name(normalized.get("Current stage", ""))
     normalized["Human gate status"] = normalize_gate_status(normalized.get("Human gate status", ""))
     normalized["Rework target"] = normalize_stage_name(normalized.get("Rework target", ""))
+    active_items = normalized.get("Active items", "").strip().lower()
+    if normalized["Current stage"] == "done" and active_items == "epic complete":
+        normalized["Active items"] = ""
     return normalized
 
 
