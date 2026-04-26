@@ -243,7 +243,8 @@ Team control commands:
   - resynchronize workflow state and execution-board review notes from `review-log.md`
 - `wrkflw:team-sync`
   - record delegated role progress such as implementer completion, reviewer start, or handoff notes
-  - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, and implementation-plan context from that role update
+  - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, `review-log.md`, and implementation-plan context from that role update
+  - validate reported changed files against the role's allowed write scope
 - all team commands also append an entry to `team-minutes.md` so the collaboration trail stays readable
 - `wrkflw:team-run`
   - generate `.workflow/<slug>/team-dispatch.md`
@@ -272,8 +273,18 @@ Expected sequence:
   - `.workflow/<slug>/team-dispatch.md`
   - `.workflow/<slug>/dispatch/*.md`
 - as delegated role work returns, record the lane outcome with `wrkflw:team-sync`
+- each delegated role should return a structured final report with:
+  - `Role`
+  - `Status`
+  - `Summary`
+  - `Files changed`
+  - `Validation run`
+  - `Findings`
+  - `Follow-up`
 - apply `wrkflw:team-sync` updates sequentially rather than in parallel, because they update shared workflow coordination files
+- prefer pasting that structured final report directly into `wrkflw:team-sync`
 - `wrkflw:team-sync` can infer role/status from pasted agent output when the output is clear, but explicit `role:` and `status:` remain safer
+- reviewer and product-owner reports with findings are written into `review-log.md` automatically; clean reviewer/product-owner reports create explicit signoff evidence
 - Codex can then spawn the role agents from those packets:
   - `Product Owner`
   - `Tech Lead`

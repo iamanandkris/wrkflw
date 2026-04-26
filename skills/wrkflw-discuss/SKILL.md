@@ -223,9 +223,20 @@ Behavior expectations:
 - `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
 - `wrkflw:team-run "..."` should only activate when the workflow already has an active story and is at `implementation-planning`, `implementation`, or `review`.
 - when `wrkflw:team-run` is used, first run the command handler so `.workflow/<slug>/team-dispatch.md` and `.workflow/<slug>/dispatch/*.md` are generated.
+- dispatch packets should require each delegated role to return a structured final report with:
+  - `Role`
+  - `Status`
+  - `Summary`
+  - `Files changed`
+  - `Validation run`
+  - `Findings`
+  - `Follow-up`
 - after each delegated role returns, run `wrkflw:team-sync` with structured status updates such as `role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane`.
+- prefer pasting the delegated role's structured final report directly into `wrkflw:team-sync` so the orchestrator can parse ownership, validation, findings, and handoff details without rewording them.
 - apply `wrkflw:team-sync` updates sequentially, not in parallel, because they all rewrite the same workflow coordination artifacts.
 - when the returned agent output already clearly states what changed or that no serious findings remain, `wrkflw:team-sync` may infer role/status from that pasted output, but explicit `role` and `status` are still preferred.
+- `wrkflw:team-sync` should validate any reported changed files against the role's `Allowed Write Paths` and block the lane if the report claims out-of-scope edits.
+- when `Reviewer QA` or `Product Owner` final reports include findings, `wrkflw:team-sync` should write them into `review-log.md` automatically; when they report no serious findings, it should record explicit signoff evidence.
 - after the dispatch packets are generated, use Codex delegated agents to enact the team model:
   - `Product Owner`: use a `default` agent for scope/acceptance challenge
   - `Tech Lead`: use a `default` agent for decomposition/integration guidance

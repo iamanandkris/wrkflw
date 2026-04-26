@@ -618,6 +618,86 @@ def parse_directives(raw: str | None) -> dict[str, str]:
     return directives
 
 
+REPORT_LABELS = {
+    "role": "role",
+    "status": "status",
+    "summary": "summary",
+    "note": "summary",
+    "follow-up": "follow-up",
+    "follow up": "follow-up",
+    "blocked by": "blocked-by",
+    "blocked-by": "blocked-by",
+    "reviewer": "reviewer",
+    "files changed": "files-changed",
+    "changed files": "files-changed",
+    "validation run": "validation-run",
+    "validation": "validation-run",
+    "findings": "findings",
+}
+
+
+def parse_structured_agent_report(raw: str | None) -> dict[str, object]:
+    if not raw or not raw.strip():
+        return {}
+    lines = [line.rstrip() for line in raw.strip().splitlines()]
+    values: dict[str, object] = {}
+    current_key: str | None = None
+    current_items: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("```"):
+            continue
+        if ":" in stripped:
+            raw_key, raw_value = stripped.split(":", 1)
+            normalized = REPORT_LABELS.get(raw_key.strip().lower())
+            if normalized:
+                if current_key and current_key in {"files-changed", "validation-run", "findings"}:
+                    values[current_key] = list(current_items)
+                elif current_key and current_items and current_key not in values:
+                    values[current_key] = " ".join(current_items).strip()
+                current_key = normalized
+                current_items = []
+                value = raw_value.strip()
+                if normalized in {"files-changed", "validation-run", "findings"}:
+                    if value and value.lower() != "none":
+                        current_items.append(value)
+                    elif value.lower() == "none":
+                        values[normalized] = []
+                        current_key = None
+                    continue
+                if value:
+                    values[normalized] = value
+                    current_key = None
+                continue
+        if stripped.startswith("- "):
+            item = stripped[2:].strip()
+            if current_key in {"files-changed", "validation-run", "findings"}:
+                if item.lower() == "none":
+                    values[current_key] = []
+                    current_key = None
+                    current_items = []
+                else:
+                    current_items.append(item)
+            elif current_key:
+                current_items.append(item)
+        elif current_key:
+            current_items.append(stripped)
+    if current_key and current_key in {"files-changed", "validation-run", "findings"}:
+        values[current_key] = list(current_items)
+    elif current_key and current_items and current_key not in values:
+        values[current_key] = " ".join(current_items).strip()
+    return values
+
+
+def report_list(report: dict[str, object], key: str) -> list[str]:
+    value = report.get(key, [])
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
 def canonical_role_name(value: str) -> str:
     cleaned = value.strip().lower()
     aliases = {
@@ -747,6 +827,45 @@ def implementer_scope_conflict(rows: dict[str, dict[str, str]], parallel_slots: 
             if paths_overlap(left, right):
                 return True, f"Parallel implementer ownership overlaps: `{left}` conflicts with `{right}`."
     return False, ""
+
+
+def path_allowed(changed_path: str, allowed_paths: list[str]) -> bool:
+    normalized = changed_path.strip().lstrip("./").rstrip("/")
+    if not normalized:
+        return True
+    for allowed in allowed_paths:
+        allowed_normalized = allowed.strip().lstrip("./").rstrip("/")
+        if not allowed_normalized:
+            continue
+        if normalized == allowed_normalized or normalized.startswith(allowed_normalized + "/"):
+            return True
+    return False
+
+
+def validate_changed_paths(role: str, rows: dict[str, dict[str, str]], changed_paths: list[str]) -> tuple[bool, str]:
+    if role not in rows or not changed_paths:
+        return True, ""
+    allowed_paths = parse_allowed_paths(rows[role].get("Allowed Write Paths", ""))
+    if not allowed_paths:
+        return True, ""
+    invalid = [path for path in changed_paths if path.lower() != "none" and not path_allowed(path, allowed_paths)]
+    if invalid:
+        return (
+            False,
+            f"{role} reported changes outside allowed write scope: {', '.join(invalid[:3])}. "
+            f"Allowed paths: {', '.join(allowed_paths)}",
+        )
+    return True, ""
+
+
+def finding_severity_and_text(raw: str) -> tuple[str, str]:
+    text = raw.strip()
+    if not text:
+        return "medium", ""
+    match = re.match(r"^(critical|high|medium|low|info)\s*:\s*(.+)$", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).lower(), match.group(2).strip()
+    return "medium", text
 
 
 def append_review_log_entry(
@@ -944,8 +1063,12 @@ def infer_role_from_output(
     rows: dict[str, dict[str, str]],
 ) -> str:
     lowered = directive_text.lower()
+    directives = parse_directives(directive_text)
+    report = parse_structured_agent_report(directive_text)
     explicit = canonical_role_name(
-        parse_directives(directive_text).get("role", "") or parse_directives(directive_text).get("owner", "")
+        directives.get("role", "")
+        or directives.get("owner", "")
+        or str(report.get("role", ""))
     )
     if explicit in rows or explicit in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
         return explicit
@@ -968,7 +1091,8 @@ def infer_role_from_output(
 def infer_status_from_output(directive_text: str) -> str:
     lowered = directive_text.lower()
     directives = parse_directives(directive_text)
-    explicit = directives.get("status", "").strip().lower()
+    report = parse_structured_agent_report(directive_text)
+    explicit = directives.get("status", "").strip().lower() or str(report.get("status", "")).strip().lower()
     if explicit:
         return explicit
     if "no serious findings" in lowered or "changed " in lowered or "fixes made" in lowered or "specific fixes" in lowered:
@@ -1119,6 +1243,13 @@ def team_minutes_path(root: Path, workflow_slug: str) -> Path:
     return root / ".workflow" / workflow_slug / "team-minutes.md"
 
 
+def sync_team_story_headers(root: Path, workflow_slug: str, story: str) -> None:
+    if not story or story == "-":
+        return
+    replace_or_append_bullet(root / ".workflow" / workflow_slug / "review-log.md", "Current story", story)
+    replace_or_append_bullet(team_minutes_path(root, workflow_slug), "Current story", story)
+
+
 def maybe_stage_for_team_status(state: dict[str, str], role: str, status: str, root: Path, workflow_slug: str) -> None:
     current = ensure_stage(state.get("Current stage") or "discuss")
     board_path = root / ".workflow" / workflow_slug / "execution-board.md"
@@ -1164,9 +1295,15 @@ def handle_team_sync(
     directive_text: str,
 ) -> dict[str, str]:
     directives = parse_directives(directive_text)
+    report = parse_structured_agent_report(directive_text)
     assignments_path = root / ".workflow" / workflow_slug / "agent-assignments.md"
     rows = parse_assignment_rows(assignments_path)
-    role = canonical_role_name(directives.get("role", "") or directives.get("owner", "") or "")
+    role = canonical_role_name(
+        directives.get("role", "")
+        or directives.get("owner", "")
+        or str(report.get("role", ""))
+        or ""
+    )
     if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
         role = infer_role_from_output(directive_text, rows)
     if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
@@ -1174,20 +1311,59 @@ def handle_team_sync(
         state["Blocked reason"] = "team-sync requires a recognized role."
         state["Next action"] = "provide role, status, and note for the team member being synchronized"
         return state
-    status = infer_status_from_output(directive_text)
+    explicit_status = directives.get("status", "").strip().lower() or str(report.get("status", "")).strip().lower()
+    status = explicit_status or infer_status_from_output(directive_text)
     if status not in {"planned", "in-progress", "in-review", "done", "blocked", "optional"}:
         state["Human gate status"] = "blocked"
         state["Blocked reason"] = f"team-sync received unsupported status: {status}"
         state["Next action"] = "use one of planned, in-progress, in-review, done, blocked, or optional"
         return state
-    note = directives.get("note", "").strip() or directives.get("summary", "").strip()
+    note = (
+        directives.get("note", "").strip()
+        or directives.get("summary", "").strip()
+        or str(report.get("summary", "")).strip()
+    )
     if not note:
         stripped = directive_text.strip()
         if stripped:
             note = stripped.replace("\n", " ").strip()
-    follow_up = directives.get("follow-up", "").strip() or directives.get("follow up", "").strip()
-    blocked_by = directives.get("blocked by", "").strip()
-    reviewer = directives.get("reviewer", "").strip() or None
+    follow_up = (
+        directives.get("follow-up", "").strip()
+        or directives.get("follow up", "").strip()
+        or str(report.get("follow-up", "")).strip()
+    )
+    blocked_by = directives.get("blocked by", "").strip() or str(report.get("blocked-by", "")).strip()
+    reviewer = directives.get("reviewer", "").strip() or str(report.get("reviewer", "")).strip() or None
+    changed_paths = report_list(report, "files-changed")
+    validation_runs = report_list(report, "validation-run")
+    findings = report_list(report, "findings")
+    active_story = active_story_name(state) or "-"
+    sync_team_story_headers(root, workflow_slug, active_story)
+
+    allowed, scope_reason = validate_changed_paths(role, rows, changed_paths)
+    if not allowed:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = scope_reason
+        state["Item note"] = f"{role} reported out-of-scope file changes"
+        state["Next action"] = "correct the assignment or keep changes inside the declared write scope before continuing"
+        append_team_minute(
+            team_minutes_path(root, workflow_slug),
+            "team-sync-blocked",
+            f"{role}, Workflow Orchestrator",
+            f"{active_story}: {scope_reason}",
+            "Reconcile the reported file changes with the declared write scope",
+        )
+        return state
+
+    details: list[str] = []
+    if changed_paths:
+        details.append("files: " + ", ".join(changed_paths[:4]))
+    if validation_runs:
+        details.append("validation: " + "; ".join(validation_runs[:2]))
+    if note and details:
+        note = f"{note} ({'; '.join(details)})"
+    elif details:
+        note = "; ".join(details)
 
     board_path = root / ".workflow" / workflow_slug / "execution-board.md"
     update_execution_row_for_role(board_path, workflow_slug, role, status, note, blocked_by, reviewer)
@@ -1196,11 +1372,33 @@ def handle_team_sync(
         rows[role]["Status"] = status
         write_assignment_rows(assignments_path, workflow_slug, rows)
 
+    if role in {"Reviewer QA", "Product Owner"}:
+        if findings:
+            for raw_finding in findings:
+                severity, finding_text = finding_severity_and_text(raw_finding)
+                if not finding_text:
+                    continue
+                append_review_log_entry(
+                    root / ".workflow" / workflow_slug / "review-log.md",
+                    role,
+                    severity,
+                    f"{active_story}: {finding_text}",
+                    follow_up or "open",
+                )
+        elif status == "done":
+            append_review_log_entry(
+                root / ".workflow" / workflow_slug / "review-log.md",
+                role,
+                "info",
+                f"{active_story}: no serious findings remain",
+                follow_up or "approved for current gate",
+            )
+
     append_team_minute(
         team_minutes_path(root, workflow_slug),
         "handoff" if status == "done" else "team-sync",
         f"{role}, Workflow Orchestrator",
-        note or f"{role} marked {status}",
+        f"{active_story}: {note or f'{role} marked {status}'}",
         follow_up or "Refresh workflow visibility and continue the active handoff",
     )
     if status == "blocked":
@@ -1212,6 +1410,26 @@ def handle_team_sync(
         if note == state.get("Blocked reason", "").strip():
             state["Blocked reason"] = ""
         maybe_stage_for_team_status(state, role, status, root, workflow_slug)
+        if role in {"Reviewer QA", "Product Owner"} and findings:
+            high_findings = []
+            normal_findings = []
+            for raw_finding in findings:
+                severity, finding_text = finding_severity_and_text(raw_finding)
+                if severity in {"critical", "high"}:
+                    high_findings.append(finding_text)
+                else:
+                    normal_findings.append(finding_text)
+            if high_findings:
+                state["Human gate status"] = "blocked"
+                state["Blocked reason"] = f"{role} reported blocking findings for {active_story}: {'; '.join(high_findings[:2])}"
+                state["Challenge note"] = "; ".join(f"{role} ({finding_severity_and_text(item)[0]}): {finding_severity_and_text(item)[1]}" for item in findings[:3])
+                state["Next action"] = follow_up or f"address the {role} findings before continuing"
+            elif normal_findings:
+                state["Challenge note"] = "; ".join(
+                    f"{role} ({finding_severity_and_text(item)[0]}): {finding_severity_and_text(item)[1]}"
+                    for item in findings[:3]
+                )
+                state["Next action"] = follow_up or f"review and respond to the {role} findings for {active_story}"
     return state
 
 
@@ -1372,6 +1590,7 @@ def handle_challenge(
     finding = directives.get("finding") or directives.get("note") or directive_text.strip() or "challenge raised"
     resolution = directives.get("resolution", "").strip()
     review_path = root / ".workflow" / workflow_slug / "review-log.md"
+    sync_team_story_headers(root, workflow_slug, active_story_name(state) or "-")
     append_review_log_entry(review_path, role, severity, finding, resolution)
     update_execution_review_row(root / ".workflow" / workflow_slug / "execution-board.md", role, finding)
     append_team_minute(
@@ -1404,6 +1623,7 @@ def handle_review_sync(
     note: str | None,
 ) -> dict[str, str]:
     review_path = root / ".workflow" / workflow_slug / "review-log.md"
+    sync_team_story_headers(root, workflow_slug, active_story_name(state) or "-")
     roles = sorted(review_log_roles(review_path))
     summary = ", ".join(roles) if roles else "none"
     update_execution_review_row(
@@ -1452,6 +1672,7 @@ def handle_team_run(
         return state
     if current == "implementation-planning":
         maybe_generate_implementation_plan(root, workflow_slug)
+    sync_team_story_headers(root, workflow_slug, active_story)
     assignment_rows = parse_assignment_rows(root / ".workflow" / workflow_slug / "agent-assignments.md")
     parallel_slots = 1
     try:
