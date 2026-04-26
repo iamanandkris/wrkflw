@@ -174,6 +174,19 @@ def default_review_log(slug: str) -> str:
 """
 
 
+def default_team_minutes(slug: str) -> str:
+    return f"""# Team Minutes
+
+- Workflow slug: {slug}
+- Current story:
+
+## Interaction Log
+
+| Timestamp | Kind | Participants | Summary | Follow-up |
+| --- | --- | --- | --- | --- |
+"""
+
+
 def default_runtime_contract(slug: str) -> str:
     return f"""# Runtime Contract
 
@@ -188,13 +201,14 @@ def default_runtime_contract(slug: str) -> str:
 - Active owner:
 - Current handoff:
 - Required shared inputs: design-slice.md, state.md, stories.md, execution-board.md, review-log.md, links.md, workflow-contract.md
-- Required shared outputs: code/tests/docs in assigned scope, review-log.md evidence, execution-board.md notes
+- Required shared outputs: code/tests/docs in assigned scope, review-log.md evidence, execution-board.md notes, team-minutes.md updates
 
 ## Team Runtime Rules
 
 - Only the workflow orchestrator updates canonical `state.md`.
 - Product Owner and Reviewer QA provide challenge and signoff evidence through `review-log.md`.
 - Active role ownership and handoffs stay visible in `execution-board.md`.
+- Team conversations, challenge outcomes, and handoff notes should be summarized in `team-minutes.md`.
 - This contract prepares the workflow for future delegated multi-agent execution without requiring it today.
 """
 
@@ -215,6 +229,7 @@ def main() -> int:
     write_if_missing(wf / "agent-assignments.md", default_agent_assignments(args.slug))
     write_if_missing(wf / "execution-board.md", default_execution_board(args.slug))
     write_if_missing(wf / "review-log.md", default_review_log(args.slug))
+    write_if_missing(wf / "team-minutes.md", default_team_minutes(args.slug))
     write_if_missing(wf / "runtime-contract.md", default_runtime_contract(args.slug))
     return 0
 

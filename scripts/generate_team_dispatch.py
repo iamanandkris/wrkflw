@@ -188,6 +188,7 @@ def packet_body(
         "- `.workflow/<slug>/stories.md`",
         "- `.workflow/<slug>/execution-board.md`",
         "- `.workflow/<slug>/review-log.md`",
+        "- `.workflow/<slug>/team-minutes.md`",
         "- `.workflow/<slug>/links.md`",
         "- `.workflow/<slug>/workflow-contract.md`",
         "",
@@ -227,6 +228,7 @@ def packet_body(
             "- Keep changes within your role ownership and the active story boundary.",
             f"- Stay inside these allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
             "- Do not edit canonical `state.md` directly.",
+            "- Summarize important discussions, decisions, and handoffs in `team-minutes.md`.",
             "- Surface findings through `review-log.md` or `execution-board.md` notes as appropriate.",
             "",
         ]

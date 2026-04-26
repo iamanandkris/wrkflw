@@ -120,6 +120,7 @@ Team execution model:
 - `agent-assignments.md` should declare who owns which role for the epic lane
 - `execution-board.md` should track current work items, owners, status, and blockers
 - `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
+- `team-minutes.md` should record staffing updates, assignment decisions, team discussion outcomes, challenge summaries, and handoff notes
 - `runtime-contract.md` should record the file-driven runtime contract that keeps shared inputs, outputs, ownership, and state authority explicit
 - `team-dispatch.md` should record the current delegated execution packet index for the active workflow lane
 - `wrkflw` should synchronize `execution-board.md` with the current workflow stage so owner and handoff state remain visible
@@ -129,6 +130,7 @@ Team execution model:
 - `wrkflw:assign` should update per-epic role ownership in `agent-assignments.md`
 - `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
 - `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
+- team-control commands should also append readable minutes to `team-minutes.md` so the collaboration history is explicit
 - `wrkflw:team-run` should generate a delegated execution packet set and, when the user has explicitly asked for multi-agent execution, use those packets to spawn real role agents
 
 Capability inventory should capture:

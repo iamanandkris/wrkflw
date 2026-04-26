@@ -764,6 +764,21 @@ def append_review_log_entry(
     path.write_text(text + entry, encoding="utf-8")
 
 
+def append_team_minute(
+    path: Path,
+    kind: str,
+    participants: str,
+    summary: str,
+    follow_up: str,
+) -> None:
+    text = path.read_text(encoding="utf-8") if path.exists() else "# Team Minutes\n\n## Interaction Log\n\n| Timestamp | Kind | Participants | Summary | Follow-up |\n| --- | --- | --- | --- | --- |\n"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    row = f"| {timestamp} | {kind} | {participants} | {summary} | {follow_up} |\n"
+    path.write_text(text + row, encoding="utf-8")
+
+
 def update_execution_review_row(path: Path, reviewer: str, notes: str) -> None:
     if not path.exists():
         return
@@ -927,6 +942,10 @@ def set_runtime_mode(root: Path, workflow_slug: str, mode: str, spawn_policy: st
     replace_or_append_bullet(runtime_path, "Spawn policy", spawn_policy)
 
 
+def team_minutes_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "team-minutes.md"
+
+
 def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
     settings = parse_team_settings(root, workflow_slug)
     review_roles = review_log_roles(root / ".workflow" / workflow_slug / "review-log.md")
@@ -987,6 +1006,13 @@ def handle_staff(
         applied.append("team notes updated")
 
     state["Item note"] = "staffing updated: " + ", ".join(applied) if applied else "staffing reviewed with no changes"
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "staffing",
+        "Workflow Orchestrator, Product Owner, Tech Lead",
+        "; ".join(applied) if applied else "Reviewed staffing with no changes",
+        "Review the updated team configuration before continuing",
+    )
     if state.get("Human gate status") == "blocked":
         blocked_reason = state.get("Blocked reason", "").strip() or "active workflow block"
         state["Next action"] = f"resolve the current workflow block before continuing: {blocked_reason}"
@@ -1046,6 +1072,13 @@ def handle_assign(
 
     write_assignment_rows(assignments_path, workflow_slug, rows)
     state["Item note"] = "assignments updated: " + ", ".join(applied) if applied else "assignments reviewed with no changes"
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "assignment",
+        ", ".join(sorted(rows.keys())) if rows else "Workflow Orchestrator",
+        "; ".join(applied) if applied else "Reviewed assignments with no changes",
+        "Keep ownership boundaries explicit during execution",
+    )
     if state.get("Human gate status") == "blocked":
         blocked_reason = state.get("Blocked reason", "").strip() or "active workflow block"
         state["Next action"] = f"resolve the current workflow block before continuing: {blocked_reason}"
@@ -1072,6 +1105,13 @@ def handle_challenge(
     review_path = root / ".workflow" / workflow_slug / "review-log.md"
     append_review_log_entry(review_path, role, severity, finding, resolution)
     update_execution_review_row(root / ".workflow" / workflow_slug / "execution-board.md", role, finding)
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "challenge",
+        f"{role}, Workflow Orchestrator",
+        finding,
+        resolution or "Address the challenge before continuing",
+    )
 
     state["Challenge note"] = f"{role} challenge ({severity}): {finding}"
     state["Item note"] = f"challenge recorded by {role}"
@@ -1101,6 +1141,13 @@ def handle_review_sync(
         root / ".workflow" / workflow_slug / "execution-board.md",
         summary,
         note.strip() if note and note.strip() else f"review evidence recorded from: {summary}",
+    )
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "review-sync",
+        summary,
+        note.strip() if note and note.strip() else f"Review evidence synchronized from: {summary}",
+        "Approve when the current gate is satisfied",
     )
     current = ensure_stage(state.get("Current stage") or "discuss")
     blocked, _ = team_review_block(root, workflow_slug, current)
@@ -1144,12 +1191,26 @@ def handle_team_run(
         state["Human gate status"] = "blocked"
         state["Blocked reason"] = scope_reason
         state["Next action"] = "assign explicit, disjoint implementer write scopes before delegated team execution continues"
+        append_team_minute(
+            team_minutes_path(root, workflow_slug),
+            "team-run-blocked",
+            "Workflow Orchestrator, Tech Lead, Implementer 1, Implementer 2",
+            scope_reason,
+            "Assign explicit, disjoint implementer write scopes",
+        )
         return state
     if state.get("Human gate status") == "blocked" and "Parallel implementer ownership overlaps:" in state.get("Blocked reason", ""):
         state["Human gate status"] = "approved"
         state["Blocked reason"] = ""
     maybe_generate_team_dispatch(root, workflow_slug)
     set_runtime_mode(root, workflow_slug, "delegated-agent-team", "explicit wrkflw:team-run")
+    append_team_minute(
+        team_minutes_path(root, workflow_slug),
+        "team-run",
+        "Workflow Orchestrator, Product Owner, Tech Lead, Implementer 1, Implementer 2, Reviewer QA",
+        f"Prepared delegated dispatch for {active_story}",
+        "Run the role packets and record findings/handoffs in team-minutes.md and review-log.md",
+    )
     state["Item note"] = f"team dispatch prepared for {active_story}"
     state["Challenge note"] = ""
     if state.get("Human gate status") == "blocked":

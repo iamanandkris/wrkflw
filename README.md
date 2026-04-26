@@ -140,6 +140,7 @@ including:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `team-minutes.md`
 - `runtime-contract.md`
 - `team-dispatch.md`
 - `design-slice.md` when the workflow is seeded from a broader design source
@@ -213,6 +214,7 @@ Each workflow lane also gets:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `team-minutes.md`
 - `runtime-contract.md`
 - `team-dispatch.md` and `dispatch/*.md` after delegated team execution is prepared
 
@@ -224,6 +226,7 @@ Current behavioral integration:
 - `review-log.md` is used for late-stage challenge/signoff checks:
   - `Reviewer QA` evidence is required before `release-planning` when reviewer signoff is enabled
   - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
+- `team-minutes.md` records staffing decisions, role assignments, team-run dispatch preparation, challenge discussions, and review-sync outcomes
 - `runtime-contract.md` records the current file-driven team runtime contract and prepares the workflow for future delegated-agent execution without claiming automatic spawning today
 - `wrkflw:team-run` upgrades the current lane into delegated-runtime mode, generates role dispatch packets, and gives Codex the packets needed to spawn real role agents
 
@@ -237,6 +240,7 @@ Team control commands:
   - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
 - `wrkflw:review-sync`
   - resynchronize workflow state and execution-board review notes from `review-log.md`
+- all team commands also append an entry to `team-minutes.md` so the collaboration trail stays readable
 - `wrkflw:team-run`
   - generate `.workflow/<slug>/team-dispatch.md`
   - generate `.workflow/<slug>/dispatch/*.md` role packets
