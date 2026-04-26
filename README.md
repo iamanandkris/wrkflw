@@ -19,6 +19,7 @@
 - `wrkflw:challenge`
 - `wrkflw:review-sync`
 - `wrkflw:team-sync`
+- `wrkflw:team-sync-all`
 - `wrkflw:team-run`
 
 It also supports:
@@ -137,12 +138,15 @@ including:
 - `gates.md`
 - `diagram-config.md`
 - `workflow-contract.md`
+- `dependencies.md`
 - `team-overrides.md`
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
 - `team-minutes.md`
 - `runtime-contract.md`
+- `agent-sync-ledger.md`
+- `agent-results/`
 - `team-dispatch.md`
 - `design-slice.md` when the workflow is seeded from a broader design source
 - `design-seed.md` when applicable
@@ -217,6 +221,9 @@ Each workflow lane also gets:
 - `review-log.md`
 - `team-minutes.md`
 - `runtime-contract.md`
+- `dependencies.md`
+- `agent-sync-ledger.md`
+- `agent-results/`
 - `team-dispatch.md` and `dispatch/*.md` after delegated team execution is prepared
 
 These are intended to model a small engineering team where design, coding, and challenge/review are separated instead of letting every agent write to everything.
@@ -229,6 +236,9 @@ Current behavioral integration:
   - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
 - `team-minutes.md` records staffing decisions, role assignments, team-run dispatch preparation, challenge discussions, and review-sync outcomes
 - `runtime-contract.md` records the current file-driven team runtime contract and prepares the workflow for future delegated-agent execution without claiming automatic spawning today
+- `dependencies.md` records first-class lane dependencies such as `Depends on`, `Blocked by`, and `Unlocks`
+- `agent-results/` stores structured delegated-agent result envelopes
+- `agent-sync-ledger.md` records which result envelopes have already been synchronized into workflow state
 - `wrkflw:team-run` upgrades the current lane into delegated-runtime mode, generates role dispatch packets, and gives Codex the packets needed to spawn real role agents
 
 Team control commands:
@@ -245,6 +255,9 @@ Team control commands:
   - record delegated role progress such as implementer completion, reviewer start, or handoff notes
   - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, `review-log.md`, and implementation-plan context from that role update
   - validate reported changed files against the role's allowed write scope
+- `wrkflw:team-sync-all`
+  - ingest every unsynchronized structured result envelope from `.workflow/<slug>/agent-results/`
+  - update `agent-sync-ledger.md` so replaying the same envelopes becomes a no-op
 - all team commands also append an entry to `team-minutes.md` so the collaboration trail stays readable
 - `wrkflw:team-run`
   - generate `.workflow/<slug>/team-dispatch.md`
@@ -259,6 +272,7 @@ wrkflw:assign "Implementer 1: schema and fixtures; Reviewer QA: regression and a
 wrkflw:challenge "role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete"
 wrkflw:review-sync "Reviewer QA and Product Owner evidence recorded"
 wrkflw:team-sync "role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane"
+wrkflw:team-sync-all "batch synced delegated result envelopes"
 wrkflw:team-run "Dispatch the active story with parallel implementer lanes"
 ```
 
@@ -272,7 +286,7 @@ Expected sequence:
 - `wrkflw` generates dispatch packets under:
   - `.workflow/<slug>/team-dispatch.md`
   - `.workflow/<slug>/dispatch/*.md`
-- as delegated role work returns, record the lane outcome with `wrkflw:team-sync`
+- as delegated role work returns, write each structured final report into `.workflow/<slug>/agent-results/` and then synchronize with `wrkflw:team-sync-all` or `wrkflw:team-sync`
 - each delegated role should return a structured final report with:
   - `Role`
   - `Status`
@@ -282,7 +296,7 @@ Expected sequence:
   - `Findings`
   - `Follow-up`
 - apply `wrkflw:team-sync` updates sequentially rather than in parallel, because they update shared workflow coordination files
-- prefer pasting that structured final report directly into `wrkflw:team-sync`
+- prefer storing each structured final report in `.workflow/<slug>/agent-results/` and using `wrkflw:team-sync-all`; pasting directly into `wrkflw:team-sync` is still supported
 - `wrkflw:team-sync` can infer role/status from pasted agent output when the output is clear, but explicit `role:` and `status:` remain safer
 - reviewer and product-owner reports with findings are written into `review-log.md` automatically; clean reviewer/product-owner reports create explicit signoff evidence
 - Codex can then spawn the role agents from those packets:
@@ -303,6 +317,7 @@ Current limit:
 - actual `spawn_agent` calls happen in Codex when `wrkflw:team-run` is invoked, not inside the Python scripts themselves
 - parallel implementer lanes must have explicit, disjoint `Allowed Write Paths` in `agent-assignments.md` or `wrkflw:team-run` will block
 - delegated role completion should be fed back through `wrkflw:team-sync` so execution-board status, team minutes, diagrams, and implementation-plan context stay current
+- workflow commands now run inside a transaction journal under `.workflow/_transactions/`, so failed commands can roll back workflow and OpenSpec artifacts instead of leaving half-written state behind
 
 ### Diagram history and compact vs expanded views
 

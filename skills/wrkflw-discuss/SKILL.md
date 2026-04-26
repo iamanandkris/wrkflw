@@ -39,6 +39,7 @@ Also treat these as workflow control intents:
 - `wrkflw:review-sync "..."`
 - `wrkflw:team-run "..."`
 - `wrkflw:team-sync "..."`
+- `wrkflw:team-sync-all`
 
 ## Behavior
 
@@ -123,6 +124,9 @@ Team execution model:
 - `review-log.md` should record challenge and review findings across Product Owner, Tech Lead, and Reviewer QA
 - `team-minutes.md` should record staffing updates, assignment decisions, team discussion outcomes, challenge summaries, and handoff notes
 - `runtime-contract.md` should record the file-driven runtime contract that keeps shared inputs, outputs, ownership, and state authority explicit
+- `dependencies.md` should record first-class lane dependencies such as `Depends on`, `Blocked by`, `Satisfies`, and `Unlocks`
+- `agent-results/` should store structured delegated-agent result envelopes
+- `agent-sync-ledger.md` should record which result envelopes have already been synchronized
 - `team-dispatch.md` should record the current delegated execution packet index for the active workflow lane
 - `wrkflw` should synchronize `execution-board.md` with the current workflow stage so owner and handoff state remain visible
 - `wrkflw` should use the team model when generating `implementation-plan.md`, especially team size and parallel implementation slots
@@ -132,6 +136,7 @@ Team execution model:
 - `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
 - `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
 - `wrkflw:team-sync` should synchronize delegated role outcomes such as implementer completion, reviewer start, handoff notes, and lane status back into `execution-board.md`, `agent-assignments.md`, and `team-minutes.md`
+- `wrkflw:team-sync-all` should ingest any unsynchronized structured result envelopes from `.workflow/<slug>/agent-results/` and update `agent-sync-ledger.md`
 - team-control commands should also append readable minutes to `team-minutes.md` so the collaboration history is explicit
 - `wrkflw:team-run` should generate a delegated execution packet set and, when the user has explicitly asked for multi-agent execution, use those packets to spawn real role agents
 
@@ -172,7 +177,7 @@ To update an existing workflow state after approval or rejection, use the compan
 Preferred command handler:
 
 ```text
-python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync|team-run|team-sync> [--reason "..."] [--items "..."] [--design-file <path>]
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|rework|refine|rework-item|proceed-only|defer|next|staff|assign|challenge|review-sync|team-run|team-sync|team-sync-all> [--reason "..."] [--items "..."] [--design-file <path>]
 ```
 
 Behavior expectations:
@@ -232,7 +237,7 @@ Behavior expectations:
   - `Findings`
   - `Follow-up`
 - after each delegated role returns, run `wrkflw:team-sync` with structured status updates such as `role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane`.
-- prefer pasting the delegated role's structured final report directly into `wrkflw:team-sync` so the orchestrator can parse ownership, validation, findings, and handoff details without rewording them.
+- prefer writing the delegated role's structured final report to `.workflow/<slug>/agent-results/<slot>.md` and then running `wrkflw:team-sync-all`; direct pasting into `wrkflw:team-sync` remains supported.
 - apply `wrkflw:team-sync` updates sequentially, not in parallel, because they all rewrite the same workflow coordination artifacts.
 - when the returned agent output already clearly states what changed or that no serious findings remain, `wrkflw:team-sync` may infer role/status from that pasted output, but explicit `role` and `status` are still preferred.
 - `wrkflw:team-sync` should validate any reported changed files against the role's `Allowed Write Paths` and block the lane if the report claims out-of-scope edits.
@@ -247,13 +252,15 @@ Behavior expectations:
 - `wrkflw:team-run` should hard-block when parallel implementer lanes are enabled but their `Allowed Write Paths` are missing or overlap.
 - prefer spawning Product Owner and Tech Lead in parallel with implementer work only when their tasks are not blocking the next step.
 - after delegated work returns, use `wrkflw:team-sync` for role and handoff status, use `wrkflw:challenge` / `wrkflw:review-sync` for review evidence, then use the normal `wrkflw` commands to advance or block the workflow.
+- workflow commands should run transactionally and preserve a journal under `.workflow/_transactions/` so failed workflow/OpenSpec updates can be rolled back cleanly.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
 - Keep OpenSpec execution single-lane by default at the initiative level: one epic workflow may own the active OpenSpec lane at a time, while other epics remain workflow-only until they reach their own active `spec-authoring` pass.
 
 Dependency convention:
 - Prefer declaring dependencies in `stories.md` with a line such as `Depends on: Story 1, Story 3`.
-- If no dependencies are declared, the workflow may proceed but should note that dependency validation is based only on explicit declarations, not inference.
+- Keep lane-level dependencies explicit in `.workflow/<slug>/dependencies.md`.
+- If no dependencies are declared, the workflow may still validate lane dependencies from `.workflow/<slug>/dependencies.md` and the reviewed capability inventory.
 
 OpenSpec handoff convention:
 - `wrkflw` owns orchestration before and after spec authoring.

@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
+import json
 import re
+import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from subprocess import run
@@ -96,6 +100,15 @@ CONTRACT_FIELDS = [
     "OpenSpec lane active",
 ]
 
+DEPENDENCY_FIELDS = [
+    "Workflow slug",
+    "Depends on",
+    "Satisfies",
+    "Blocked by",
+    "Unlocks",
+    "Notes",
+]
+
 STAGE_ALIASES = {
     "epic-complete": "done",
     "epic complete": "done",
@@ -169,6 +182,95 @@ def write_state(path: Path, state: dict[str, str]) -> None:
         lines.append(f"- {field}: {state.get(field, '').strip()}")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def transaction_root(root: Path) -> Path:
+    path = root / ".workflow" / "_transactions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def copy_dir_contents(src: Path, dest: Path, skip_names: set[str] | None = None) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    skip_names = skip_names or set()
+    for child in src.iterdir():
+        if child.name in skip_names:
+            continue
+        target = dest / child.name
+        if child.is_dir():
+            shutil.copytree(child, target, dirs_exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(child, target)
+
+
+def clear_directory(path: Path, preserve: set[str] | None = None) -> None:
+    preserve = preserve or set()
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.name in preserve:
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def snapshot_environment(root: Path, workflow_slug: str, command: str) -> Path:
+    tx_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    tx_path = transaction_root(root) / workflow_slug / f"{tx_id}-{command}"
+    before = tx_path / "before"
+    before.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "workflow_slug": workflow_slug,
+        "command": command,
+        "started_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "status": "in-progress",
+    }
+    (tx_path / "transaction.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    workflow_root = root / ".workflow"
+    if workflow_root.exists():
+        copy_dir_contents(workflow_root, before / "workflow", skip_names={"_transactions"})
+    openspec_root = root / "openspec"
+    if openspec_root.exists():
+        copy_dir_contents(openspec_root, before / "openspec")
+    return tx_path
+
+
+def restore_environment(root: Path, tx_path: Path, error: str) -> None:
+    before = tx_path / "before"
+    workflow_snapshot = before / "workflow"
+    openspec_snapshot = before / "openspec"
+
+    workflow_root = root / ".workflow"
+    workflow_root.mkdir(parents=True, exist_ok=True)
+    clear_directory(workflow_root, preserve={"_transactions"})
+    if workflow_snapshot.exists():
+        copy_dir_contents(workflow_snapshot, workflow_root)
+
+    openspec_root = root / "openspec"
+    if openspec_snapshot.exists():
+        if openspec_root.exists():
+            shutil.rmtree(openspec_root)
+        copy_dir_contents(openspec_snapshot, openspec_root)
+    elif openspec_root.exists():
+        shutil.rmtree(openspec_root)
+
+    metadata_path = tx_path / "transaction.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    metadata["status"] = "rolled-back"
+    metadata["rolled_back_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    metadata["error"] = error
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
+
+def commit_environment(tx_path: Path) -> None:
+    metadata_path = tx_path / "transaction.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    metadata["status"] = "committed"
+    metadata["completed_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
 
 def history_path(root: Path, workflow_slug: str) -> Path:
@@ -363,6 +465,81 @@ def workflow_slugs(root: Path) -> list[str]:
         for path in workflow_root.iterdir()
         if path.is_dir() and not path.name.startswith("_")
     )
+
+
+def dependency_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "dependencies.md"
+
+
+def read_dependency_metadata(root: Path, workflow_slug: str) -> dict[str, str]:
+    values = parse_kv_list(dependency_path(root, workflow_slug))
+    return {field: values.get(field, "").strip() for field in DEPENDENCY_FIELDS}
+
+
+def write_dependency_metadata(root: Path, workflow_slug: str, values: dict[str, str]) -> None:
+    merged = {field: values.get(field, "").strip() for field in DEPENDENCY_FIELDS}
+    merged["Workflow slug"] = workflow_slug
+    write_kv_list(dependency_path(root, workflow_slug), "Dependencies", DEPENDENCY_FIELDS, merged)
+
+
+def parse_capability_inventory(path: Path) -> list[dict[str, str]]:
+    capabilities: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
+        line = raw_line.strip()
+        if line.startswith("### "):
+            if current:
+                capabilities.append(current)
+            current = {"name": line[4:].strip(), "status": "", "owner": ""}
+        elif current and line.startswith("- Status:"):
+            current["status"] = line.split(":", 1)[1].strip().lower()
+        elif current and line.startswith("- Owning workflow:"):
+            current["owner"] = normalize_item_name(line.split(":", 1)[1].strip())
+    if current:
+        capabilities.append(current)
+    return capabilities
+
+
+def refresh_lane_dependencies(root: Path, workflow_slug: str) -> dict[str, str]:
+    existing = read_dependency_metadata(root, workflow_slug)
+    depends_on: set[str] = set()
+    unlocks: set[str] = set()
+    completed = completed_workflow_dependencies(root)
+    capability_path = root / ".workflow" / workflow_slug / "capabilities.md"
+    for capability in parse_capability_inventory(capability_path):
+        owner = capability.get("owner", "").strip()
+        status = capability.get("status", "").strip().lower()
+        if owner and owner != workflow_slug:
+            if status == "satisfied by prior epic":
+                depends_on.add(owner)
+            elif status in {"deferred to later epic", "recommended follow-up"}:
+                unlocks.add(owner)
+    blocked_by = sorted(dep for dep in depends_on if dep not in completed)
+    values = {
+        "Workflow slug": workflow_slug,
+        "Depends on": ", ".join(sorted(depends_on)),
+        "Satisfies": workflow_slug,
+        "Blocked by": ", ".join(blocked_by),
+        "Unlocks": ", ".join(sorted(unlocks)),
+        "Notes": existing.get("Notes", ""),
+    }
+    write_dependency_metadata(root, workflow_slug, values)
+    return values
+
+
+def unresolved_lane_dependencies(root: Path, workflow_slug: str) -> list[str]:
+    values = refresh_lane_dependencies(root, workflow_slug)
+    blocked = [item.strip() for item in values.get("Blocked by", "").split(",") if item.strip()]
+    return blocked
+
+
+def lane_dependency_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
+    if stage in {"discuss", "capability-review"}:
+        return False, ""
+    blocked = unresolved_lane_dependencies(root, workflow_slug)
+    if not blocked:
+        return False, ""
+    return True, f"This workflow depends on incomplete lanes: {', '.join(blocked)}"
 
 
 def openspec_lane_active(contract: dict[str, str]) -> bool:
@@ -696,6 +873,60 @@ def report_list(report: dict[str, object], key: str) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def agent_results_dir(root: Path, workflow_slug: str) -> Path:
+    path = root / ".workflow" / workflow_slug / "agent-results"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def agent_sync_ledger_path(root: Path, workflow_slug: str) -> Path:
+    return root / ".workflow" / workflow_slug / "agent-sync-ledger.md"
+
+
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def parse_sync_ledger(path: Path) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for row in parse_markdown_table_rows(path):
+        if row and row[0] == "Timestamp":
+            continue
+        if len(row) >= 4:
+            entries[row[1]] = row[2]
+    return entries
+
+
+def append_sync_ledger_entry(path: Path, source: str, digest: str, role: str, status: str) -> None:
+    if not path.exists():
+        path.write_text(
+            "# Agent Sync Ledger\n\n| Timestamp | Source | Digest | Role | Status |\n| --- | --- | --- | --- | --- |\n",
+            encoding="utf-8",
+        )
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"| {timestamp} | {source} | {digest} | {role} | {status} |\n")
+
+
+def load_team_sync_payload(root: Path, workflow_slug: str, raw: str) -> tuple[str, str | None, str | None]:
+    candidate = raw.strip()
+    if not candidate:
+        return "", None, None
+    possible = Path(candidate)
+    if not possible.is_absolute():
+        possible = (root / candidate).resolve()
+    if possible.exists() and possible.is_file():
+        digest = file_hash(possible)
+        try:
+            source = str(possible.relative_to(root))
+        except ValueError:
+            source = str(possible)
+        return possible.read_text(encoding="utf-8"), source, digest
+    return raw, None, None
 
 
 def canonical_role_name(value: str) -> str:
@@ -1229,6 +1460,16 @@ def sync_runtime_contract(root: Path, workflow_slug: str, state: dict[str, str])
         "Recorded review roles",
         ", ".join(roles) if roles else "-",
     )
+    replace_or_append_bullet(
+        runtime_path,
+        "Agent results directory",
+        f".workflow/{workflow_slug}/agent-results",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Agent sync ledger",
+        f".workflow/{workflow_slug}/agent-sync-ledger.md",
+    )
 
 
 def set_runtime_mode(root: Path, workflow_slug: str, mode: str, spawn_policy: str) -> None:
@@ -1294,8 +1535,9 @@ def handle_team_sync(
     workflow_slug: str,
     directive_text: str,
 ) -> dict[str, str]:
-    directives = parse_directives(directive_text)
-    report = parse_structured_agent_report(directive_text)
+    payload, sync_source, sync_digest = load_team_sync_payload(root, workflow_slug, directive_text)
+    directives = parse_directives(payload)
+    report = parse_structured_agent_report(payload)
     assignments_path = root / ".workflow" / workflow_slug / "agent-assignments.md"
     rows = parse_assignment_rows(assignments_path)
     role = canonical_role_name(
@@ -1305,14 +1547,14 @@ def handle_team_sync(
         or ""
     )
     if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
-        role = infer_role_from_output(directive_text, rows)
+        role = infer_role_from_output(payload, rows)
     if role not in {"Product Owner", "Tech Lead", "Implementer 1", "Implementer 2", "Reviewer QA"}:
         state["Human gate status"] = "blocked"
         state["Blocked reason"] = "team-sync requires a recognized role."
         state["Next action"] = "provide role, status, and note for the team member being synchronized"
         return state
     explicit_status = directives.get("status", "").strip().lower() or str(report.get("status", "")).strip().lower()
-    status = explicit_status or infer_status_from_output(directive_text)
+    status = explicit_status or infer_status_from_output(payload)
     if status not in {"planned", "in-progress", "in-review", "done", "blocked", "optional"}:
         state["Human gate status"] = "blocked"
         state["Blocked reason"] = f"team-sync received unsupported status: {status}"
@@ -1324,7 +1566,7 @@ def handle_team_sync(
         or str(report.get("summary", "")).strip()
     )
     if not note:
-        stripped = directive_text.strip()
+        stripped = payload.strip()
         if stripped:
             note = stripped.replace("\n", " ").strip()
     follow_up = (
@@ -1356,6 +1598,8 @@ def handle_team_sync(
         return state
 
     details: list[str] = []
+    if sync_source:
+        details.append(f"source: {sync_source}")
     if changed_paths:
         details.append("files: " + ", ".join(changed_paths[:4]))
     if validation_runs:
@@ -1394,6 +1638,9 @@ def handle_team_sync(
                 follow_up or "approved for current gate",
             )
 
+    if sync_source and sync_digest:
+        append_sync_ledger_entry(agent_sync_ledger_path(root, workflow_slug), sync_source, sync_digest, role, status)
+
     append_team_minute(
         team_minutes_path(root, workflow_slug),
         "handoff" if status == "done" else "team-sync",
@@ -1430,6 +1677,43 @@ def handle_team_sync(
                     for item in findings[:3]
                 )
                 state["Next action"] = follow_up or f"review and respond to the {role} findings for {active_story}"
+    return state
+
+
+def handle_team_sync_all(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    note: str | None,
+) -> dict[str, str]:
+    ledger = parse_sync_ledger(agent_sync_ledger_path(root, workflow_slug))
+    pending: list[Path] = []
+    for result_path in sorted(agent_results_dir(root, workflow_slug).glob("*.md")):
+        digest = file_hash(result_path)
+        try:
+            source = str(result_path.relative_to(root))
+        except ValueError:
+            source = str(result_path)
+        if ledger.get(source) == digest:
+            continue
+        pending.append(result_path)
+
+    if not pending:
+        state["Item note"] = "no pending agent result envelopes to synchronize"
+        if note and note.strip():
+            state["Next action"] = note.strip()
+        return state
+
+    synced_sources: list[str] = []
+    for result_path in pending:
+        state = handle_team_sync(state, root, workflow_slug, str(result_path))
+        try:
+            synced_sources.append(str(result_path.relative_to(root)))
+        except ValueError:
+            synced_sources.append(str(result_path))
+    state["Item note"] = "agent result envelopes synchronized: " + ", ".join(synced_sources)
+    if note and note.strip():
+        state["Next action"] = note.strip()
     return state
 
 
@@ -1695,6 +1979,7 @@ def handle_team_run(
     if state.get("Human gate status") == "blocked" and "Parallel implementer ownership overlaps:" in state.get("Blocked reason", ""):
         state["Human gate status"] = "approved"
         state["Blocked reason"] = ""
+    agent_results_dir(root, workflow_slug)
     maybe_generate_team_dispatch(root, workflow_slug)
     set_runtime_mode(root, workflow_slug, "delegated-agent-team", "explicit wrkflw:team-run")
     append_team_minute(
@@ -1813,6 +2098,12 @@ def enter_stage(
     stage = ensure_stage(stage)
     state["Current stage"] = stage
     if root is not None and workflow_slug is not None:
+        dep_blocked, dep_reason = lane_dependency_block(root, workflow_slug, stage)
+        if dep_blocked:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = dep_reason
+            state["Next action"] = "finish the prerequisite workflow lanes before advancing this lane"
+            return state
         if stage == "spec-authoring":
             activated, activation_reason = ensure_openspec_lane(root, workflow_slug)
             if not activated:
@@ -2205,77 +2496,88 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, override, and team operations.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync", "team-run", "team-sync"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "staff", "assign", "challenge", "review-sync", "team-run", "team-sync", "team-sync-all"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
-    state_path = root / ".workflow" / args.slug / "state.md"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
+    tx_path = snapshot_environment(root, args.slug, args.command)
+    try:
+        state_path = root / ".workflow" / args.slug / "state.md"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
 
-    state = parse_state(state_path)
-    if not state["Current stage"]:
-        state["Current stage"] = "discuss"
-        state["Human gate status"] = "pending"
-        state["Blocked reason"] = ""
-        state["Challenge note"] = ""
-        state["Next action"] = NEXT_ACTION["discuss"]
+        state = parse_state(state_path)
+        if not state["Current stage"]:
+            state["Current stage"] = "discuss"
+            state["Human gate status"] = "pending"
+            state["Blocked reason"] = ""
+            state["Challenge note"] = ""
+            state["Next action"] = NEXT_ACTION["discuss"]
 
-    maybe_seed_from_design(root, args.slug, args.design_file)
-    maybe_generate_capability_inventory(root, args.slug)
-    maybe_ensure_team_artifacts(root, args.slug)
-    refresh_workflow_contract(root, args.slug)
-    before_state = deepcopy(state)
+        maybe_seed_from_design(root, args.slug, args.design_file)
+        maybe_generate_capability_inventory(root, args.slug)
+        maybe_ensure_team_artifacts(root, args.slug)
+        refresh_lane_dependencies(root, args.slug)
+        refresh_workflow_contract(root, args.slug)
+        before_state = deepcopy(state)
 
-    if args.command == "approve":
-        state = handle_approve_with_reason(state, args.reason, root, args.slug)
-    elif args.command in {"reject", "rework"}:
-        state = handle_reject(state, args.reason or "feedback not provided")
-    elif args.command == "reconcile":
-        state = handle_reconcile(state, args.reason or "repository evidence is ahead of workflow or OpenSpec artifacts")
-    elif args.command == "refine":
-        state = handle_refine(state, args.reason or "refinement requested", root, args.slug)
-    elif args.command == "rework-item":
-        state = handle_rework_item(state, args.items or args.reason or "unspecified item", args.reason)
-    elif args.command == "proceed-only":
-        state = handle_proceed_only(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
-    elif args.command == "defer":
-        state = handle_defer(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
-    elif args.command == "next":
-        state = handle_next(state, root, args.slug)
-    elif args.command == "override":
-        state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
-    elif args.command == "staff":
-        state = handle_staff(state, root, args.slug, args.reason or args.items or "", args.items)
-    elif args.command == "assign":
-        state = handle_assign(state, root, args.slug, args.reason or args.items or "")
-    elif args.command == "challenge":
-        state = handle_challenge(state, root, args.slug, args.reason or args.items or "challenge raised", args.items)
-    elif args.command == "review-sync":
-        state = handle_review_sync(state, root, args.slug, args.reason)
-    elif args.command == "team-run":
-        state = handle_team_run(state, root, args.slug, args.reason)
-    elif args.command == "team-sync":
-        state = handle_team_sync(state, root, args.slug, args.reason or args.items or "")
+        if args.command == "approve":
+            state = handle_approve_with_reason(state, args.reason, root, args.slug)
+        elif args.command in {"reject", "rework"}:
+            state = handle_reject(state, args.reason or "feedback not provided")
+        elif args.command == "reconcile":
+            state = handle_reconcile(state, args.reason or "repository evidence is ahead of workflow or OpenSpec artifacts")
+        elif args.command == "refine":
+            state = handle_refine(state, args.reason or "refinement requested", root, args.slug)
+        elif args.command == "rework-item":
+            state = handle_rework_item(state, args.items or args.reason or "unspecified item", args.reason)
+        elif args.command == "proceed-only":
+            state = handle_proceed_only(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
+        elif args.command == "defer":
+            state = handle_defer(state, args.items or args.reason or "unspecified item", args.reason, root, args.slug)
+        elif args.command == "next":
+            state = handle_next(state, root, args.slug)
+        elif args.command == "override":
+            state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
+        elif args.command == "staff":
+            state = handle_staff(state, root, args.slug, args.reason or args.items or "", args.items)
+        elif args.command == "assign":
+            state = handle_assign(state, root, args.slug, args.reason or args.items or "")
+        elif args.command == "challenge":
+            state = handle_challenge(state, root, args.slug, args.reason or args.items or "challenge raised", args.items)
+        elif args.command == "review-sync":
+            state = handle_review_sync(state, root, args.slug, args.reason)
+        elif args.command == "team-run":
+            state = handle_team_run(state, root, args.slug, args.reason)
+        elif args.command == "team-sync":
+            state = handle_team_sync(state, root, args.slug, args.reason or args.items or "")
+        elif args.command == "team-sync-all":
+            state = handle_team_sync_all(state, root, args.slug, args.reason)
 
-    write_state(state_path, state)
-    sync_execution_board(root, args.slug, state)
-    sync_runtime_contract(root, args.slug, state)
-    if ensure_stage(state.get("Current stage") or "discuss") in {"implementation-planning", "implementation", "review"}:
-        maybe_generate_implementation_plan(root, args.slug)
-    update_initiative_index(root, args.slug, state)
-    append_history_event(root, args.slug, args.command, before_state, state)
-    run(
-        ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    print(f"{args.command}: {state['Current stage']} | gate={state['Human gate status']} | next={state['Next action']}")
-    return 0
+        write_state(state_path, state)
+        refresh_lane_dependencies(root, args.slug)
+        sync_execution_board(root, args.slug, state)
+        sync_runtime_contract(root, args.slug, state)
+        if ensure_stage(state.get("Current stage") or "discuss") in {"implementation-planning", "implementation", "review"}:
+            maybe_generate_implementation_plan(root, args.slug)
+        update_initiative_index(root, args.slug, state)
+        append_history_event(root, args.slug, args.command, before_state, state)
+        run(
+            ["python3", str(Path(__file__).with_name("generate_workflow_diagram.py")), "--slug", args.slug, "--root", str(root)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commit_environment(tx_path)
+        print(f"{args.command}: {state['Current stage']} | gate={state['Human gate status']} | next={state['Next action']}")
+        return 0
+    except Exception as exc:
+        restore_environment(root, tx_path, str(exc))
+        print(f"{args.command}: rolled back | error={exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

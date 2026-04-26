@@ -187,6 +187,14 @@ def default_team_minutes(slug: str) -> str:
 """
 
 
+def default_agent_sync_ledger() -> str:
+    return """# Agent Sync Ledger
+
+| Timestamp | Source | Digest | Role | Status |
+| --- | --- | --- | --- | --- |
+"""
+
+
 def default_runtime_contract(slug: str) -> str:
     return f"""# Runtime Contract
 
@@ -196,6 +204,8 @@ def default_runtime_contract(slug: str) -> str:
 - Spawn policy: no automatic agent spawning; explicit orchestration only
 - Dispatch artifact: `.workflow/{slug}/team-dispatch.md`
 - Dispatch directory: `.workflow/{slug}/dispatch/`
+- Agent results directory: `.workflow/{slug}/agent-results`
+- Agent sync ledger: `.workflow/{slug}/agent-sync-ledger.md`
 - State authority: `scripts/handle_workflow_command.py`
 - Active story:
 - Active owner:
@@ -210,6 +220,18 @@ def default_runtime_contract(slug: str) -> str:
 - Active role ownership and handoffs stay visible in `execution-board.md`.
 - Team conversations, challenge outcomes, and handoff notes should be summarized in `team-minutes.md`.
 - This contract prepares the workflow for future delegated multi-agent execution without requiring it today.
+"""
+
+
+def default_dependencies(slug: str) -> str:
+    return f"""# Dependencies
+
+- Workflow slug: {slug}
+- Depends on:
+- Satisfies: {slug}
+- Blocked by:
+- Unlocks:
+- Notes:
 """
 
 
@@ -231,6 +253,9 @@ def main() -> int:
     write_if_missing(wf / "review-log.md", default_review_log(args.slug))
     write_if_missing(wf / "team-minutes.md", default_team_minutes(args.slug))
     write_if_missing(wf / "runtime-contract.md", default_runtime_contract(args.slug))
+    write_if_missing(wf / "dependencies.md", default_dependencies(args.slug))
+    write_if_missing(wf / "agent-sync-ledger.md", default_agent_sync_ledger())
+    (wf / "agent-results").mkdir(parents=True, exist_ok=True)
     return 0
 
 

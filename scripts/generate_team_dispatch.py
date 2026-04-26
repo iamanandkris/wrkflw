@@ -163,6 +163,7 @@ def packet_body(
             "Record findings in review-log.md and challenge the work when needed.",
         ],
     }.get(role, ["Follow the assignment and keep ownership bounded."])
+    result_path = f".workflow/{slug}/agent-results/{row['Slot']}.md"
 
     lines = [
         f"# {role} Dispatch Packet",
@@ -180,6 +181,7 @@ def packet_body(
         f"- Responsibility focus: {row['Responsibility Focus']}",
         f"- Default ownership: {row['Default Ownership']}",
         f"- Allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
+        f"- Result envelope path: {result_path}",
         f"- Existing review roles: {', '.join(review_roles) if review_roles else '-'}",
         "",
         "## Shared Inputs",
@@ -229,7 +231,8 @@ def packet_body(
             f"- Stay inside these allowed write paths: {row.get('Allowed Write Paths', '-') or '-'}",
             "- Do not edit canonical `state.md` directly.",
             "- Summarize important discussions, decisions, and handoffs in `team-minutes.md`.",
-            "- When you finish or hand off, return the final report template below exactly so the orchestrator can run `wrkflw:team-sync` sequentially without guessing.",
+            f"- When you finish or hand off, write the final report to `{result_path}` and return the same content in chat.",
+            "- Keep the final report schema exact so the orchestrator can ingest it without guessing.",
             "- Surface findings through `review-log.md` or `execution-board.md` notes as appropriate.",
             "",
             "## Final Report Template",
@@ -255,7 +258,7 @@ def packet_body(
             "## Orchestrator Sync",
             "After this report returns, the orchestrator should run:",
             "```text",
-            "wrkflw:team-sync \"<paste the final report here>\"",
+            "wrkflw:team-sync-all",
             "```",
             "",
         ]
