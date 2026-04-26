@@ -106,6 +106,11 @@ Start a workflow:
 wrkflw:discuss "Implement feature X"
 ```
 
+Example:
+
+- `examples/caseflow-example.md`
+  - end-to-end multi-epic backend example showing design normalization, OpenSpec lane control, delegated team execution, and the workflow hardening that came out of a real project
+
 Start a workflow from a design seed:
 
 ```text
