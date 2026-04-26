@@ -118,7 +118,8 @@ Workflow contract should capture:
 The workflow should also maintain a live PlantUML diagram at:
 
 ```text
-.workflow/<slug>/diagram.puml
+.workflow/<slug>/diagram-flow.puml
+.workflow/<slug>/diagram-work.puml
 ```
 
 Update it after each workflow action and OpenSpec bridge action so progress is visible in near real time.

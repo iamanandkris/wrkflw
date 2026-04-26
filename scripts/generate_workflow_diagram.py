@@ -261,6 +261,23 @@ def preferred_summary(*values: str) -> str:
     return "-"
 
 
+def design_summary_sources(wf: Path) -> tuple[str, str]:
+    design_slice = read_text(wf / "design-slice.md")
+    legacy_epic = read_text(wf / "epic.md")
+    design_seed = read_text(wf / "design-seed.md")
+    problem = preferred_summary(
+        first_design_section(design_slice, "Workflow Framing"),
+        extract_epic_sections(legacy_epic).get("Problem", "").splitlines()[0] if legacy_epic else "",
+        first_design_section(design_seed, "Purpose"),
+    )
+    goal = preferred_summary(
+        first_design_section(design_slice, "Slice Summary"),
+        extract_epic_sections(legacy_epic).get("Goal", "").splitlines()[0] if legacy_epic else "",
+        first_design_section(design_seed, "Desired Outcome"),
+    )
+    return problem, goal
+
+
 def story_file_progress(wf: Path, stories: list[dict[str, str]], state: dict[str, str]) -> dict[str, list[str]]:
     progress: dict[str, list[str]] = {}
     done_state = (state.get("Current stage", "") == "done")
@@ -697,19 +714,14 @@ def write_flow_diagram(
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
-    epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     context_problem = context_value(wf / "context.md", "Problem")
     context_goal = context_value(wf / "context.md", "Goal")
-    design_seed = read_text(wf / "design-seed.md")
-    design_problem = first_design_section(design_seed, "Purpose")
-    design_goal = first_design_section(design_seed, "Desired Outcome")
+    design_problem, design_goal = design_summary_sources(wf)
     epic_problem = preferred_summary(
-        epic_sections.get("Problem", "").splitlines()[0] if epic_sections.get("Problem") else "",
         context_problem,
         design_problem,
     )
     epic_goal = preferred_summary(
-        epic_sections.get("Goal", "").splitlines()[0] if epic_sections.get("Goal") else "",
         context_goal,
         design_goal,
     )
@@ -787,19 +799,14 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
     touched_order = story_touch_order(events, stories)
-    epic_sections = extract_epic_sections(read_text(wf / "epic.md"))
     context_problem = context_value(wf / "context.md", "Problem")
     context_goal = context_value(wf / "context.md", "Goal")
-    design_seed = read_text(wf / "design-seed.md")
-    design_problem = first_design_section(design_seed, "Purpose")
-    design_goal = first_design_section(design_seed, "Desired Outcome")
+    design_problem, design_goal = design_summary_sources(wf)
     epic_problem = preferred_summary(
-        epic_sections.get("Problem", "").splitlines()[0] if epic_sections.get("Problem") else "",
         context_problem,
         design_problem,
     )
     epic_goal = preferred_summary(
-        epic_sections.get("Goal", "").splitlines()[0] if epic_sections.get("Goal") else "",
         context_goal,
         design_goal,
     )

@@ -177,8 +177,9 @@ def main() -> int:
     wf.mkdir(parents=True, exist_ok=True)
 
     context = read_text(wf / "context.md")
+    design_slice = read_text(wf / "design-slice.md")
     design_seed = read_text(wf / "design-seed.md")
-    combined = "\n".join(part for part in [context, design_seed] if part.strip())
+    combined = "\n".join(part for part in [context, design_slice, design_seed] if part.strip())
     mode, rationale = detect_mode(combined)
 
     inventory = format_inventory(mode, rationale, combined)
