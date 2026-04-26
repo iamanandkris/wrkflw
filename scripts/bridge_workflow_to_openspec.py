@@ -168,6 +168,16 @@ def section_bullets(sections: dict[str, list[str]], name: str) -> list[str]:
     return bullets
 
 
+def section_csv(sections: dict[str, list[str]], name: str) -> list[str]:
+    values: list[str] = []
+    for line in sections.get(name, []):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("- "):
+            continue
+        values.extend(part.strip() for part in stripped.split(",") if part.strip())
+    return values
+
+
 def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]:
     mode = "general-delivery"
     capabilities: list[dict[str, object]] = []
@@ -278,18 +288,28 @@ def main() -> int:
     story_enrichment = read_text(story_file_path).strip()
     enrichment_sections = parse_markdown_sections(story_enrichment)
     story_scope = section_paragraph(enrichment_sections, "Scope")
+    story_capability_coverage = section_csv(enrichment_sections, "Capability Coverage")
     story_acceptance = section_bullets(enrichment_sections, "Acceptance Criteria")
     story_test_expectations = section_bullets(enrichment_sections, "Test Expectations")
     story_risks = section_bullets(enrichment_sections, "Risks")
     workflow_spec = read_text(story_spec_path).strip()
     capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
-    covered_capabilities, deferred_capabilities = infer_story_coverage(
-        story_title,
-        story_scope,
-        story_acceptance,
-        story_test_expectations,
-        capability_inventory,
-    )
+    if story_capability_coverage:
+        explicit = {name.lower(): name for name in story_capability_coverage}
+        covered_capabilities = [capability for capability in capability_inventory if str(capability["name"]).lower() in explicit]
+        deferred_capabilities = [
+            capability
+            for capability in capability_inventory
+            if capability not in covered_capabilities and str(capability.get("status", "")) in {"required", "recommended"}
+        ]
+    else:
+        covered_capabilities, deferred_capabilities = infer_story_coverage(
+            story_title,
+            story_scope,
+            story_acceptance,
+            story_test_expectations,
+            capability_inventory,
+        )
 
     change_dir = ensure_change(root, change_slug, f"{active_story}: {story_title}")
     specs_dir = change_dir / "specs" / capability_slug

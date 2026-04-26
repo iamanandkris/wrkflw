@@ -119,6 +119,36 @@ def acceptance_for_capability(name: str, capability: dict[str, object]) -> list[
 
 def tests_for_capability(name: str) -> list[str]:
     mapping = {
+        "Contract Runtime Boundary": [
+            "Add or update a test that proves the Java-facing contract service can validate a representative payload through the Concentric runtime boundary.",
+            "Assert that Scala-backed validation details are translated into a stable Java/platform error shape.",
+        ],
+        "Case And Task Domain Model": [
+            "Add or update a test that validates the first representative case/task payload shape and lifecycle defaults.",
+            "Keep one success-path assertion that makes the initial domain contract surface easy to inspect.",
+        ],
+        "Lifecycle Transition Enforcement": [
+            "Add or update a test that blocks an invalid transition because required lifecycle conditions are not satisfied.",
+            "Assert the structured validation feedback returned for the blocked transition.",
+        ],
+        "Approval And Decision Governance": [
+            "Add or update a test covering approval prerequisites or invalid decision-state combinations.",
+        ],
+        "Evidence Intake And Secure Views": [
+            "Add or update a test for evidence metadata validation and secure/internal view filtering.",
+        ],
+        "Queue, SLA, And Assignment Operations": [
+            "Add or update a test that validates queue or SLA-related state representation for a case/task.",
+        ],
+        "Audit Trail And Timeline Reconstruction": [
+            "Add or update a test that proves material changes produce reconstructable audit records or deltas.",
+        ],
+        "API And Event Surface": [
+            "Add or update a test that exercises the capability through a service/API-facing boundary and verifies emitted event intent where appropriate.",
+        ],
+        "Schema And UI Metadata": [
+            "Add or update a test that inspects contract-derived schema or metadata expected by UI/admin consumers.",
+        ],
         "Core Contract Usage": [
             "Add or update a test that validates one representative raw input into the typed contract model.",
             "Keep one success-path assertion that makes the core contract surface easy to inspect.",
@@ -159,6 +189,33 @@ def tests_for_capability(name: str) -> list[str]:
 
 def risks_for_capability(name: str) -> list[str]:
     mapping = {
+        "Contract Runtime Boundary": [
+            "Do not leak Scala collection or Concentric-specific runtime details beyond the dedicated boundary module.",
+        ],
+        "Case And Task Domain Model": [
+            "Avoid expanding the first story into the full platform domain; keep the initial aggregate shape minimal but extensible.",
+        ],
+        "Lifecycle Transition Enforcement": [
+            "Keep transition-policy logic centralized so controllers and orchestration services do not drift into duplicate validation paths.",
+        ],
+        "Approval And Decision Governance": [
+            "Do not entangle all approval edge cases in the first slice; start with one representative protected action.",
+        ],
+        "Evidence Intake And Secure Views": [
+            "Separate metadata validation from binary-storage integration so the story remains independently reviewable.",
+        ],
+        "Queue, SLA, And Assignment Operations": [
+            "Avoid pulling full queue balancing and scheduling behavior into the same slice unless it is required by the active story.",
+        ],
+        "Audit Trail And Timeline Reconstruction": [
+            "Keep the initial audit slice focused on reconstructable material changes rather than a full reporting/search platform.",
+        ],
+        "API And Event Surface": [
+            "Keep the external surface thin until the contract and lifecycle boundary is stable.",
+        ],
+        "Schema And UI Metadata": [
+            "Avoid promising UI behavior that is not yet backed by stable contract-derived metadata.",
+        ],
         "Nested Structures": ["Avoid inflating the first slice with too many domain branches or deeply nested shapes at once."],
         "Lifecycle And Field Semantics": ["Keep field-semantics examples small enough that the behavior stays readable to reviewers."],
         "Patch And Partial Validation": ["Do not mix full-update and partial-update semantics in a single unclear example."],

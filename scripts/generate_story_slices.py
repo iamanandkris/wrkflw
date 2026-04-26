@@ -139,6 +139,61 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]]) -> list[dict[s
             ("Add Developer Guidance", ["Developer Guidance"]),
         ]
     elif mode == "product-service":
+        service_story_specs = [
+            (
+                "Establish Contract Runtime Boundary",
+                [
+                    "Contract Runtime Boundary",
+                    "Case And Task Domain Model",
+                ],
+                "Create the isolated Concentric-backed contract runtime module and the first Java-friendly domain contracts so the rest of the platform can consume a stable lifecycle boundary.",
+            ),
+            (
+                "Add Lifecycle Transition And Patch Enforcement",
+                [
+                    "Lifecycle Transition Enforcement",
+                    "Patch And Partial Mutation",
+                    "Approval And Decision Governance",
+                ],
+                "Enforce transition validity, patch semantics, and decision/approval prerequisites through the contract and policy layers.",
+            ),
+            (
+                "Add Evidence, Queue, And Audit Operations",
+                [
+                    "Evidence Intake And Secure Views",
+                    "Queue, SLA, And Assignment Operations",
+                    "Audit Trail And Timeline Reconstruction",
+                ],
+                "Cover the operational behaviors that make case work auditable, secure, and manageable at scale.",
+            ),
+            (
+                "Expose API, Events, And Schema Metadata",
+                [
+                    "API And Event Surface",
+                    "Schema And UI Metadata",
+                ],
+                "Expose the initial write/read interfaces, durable event surface, and contract-derived metadata needed by surrounding systems and admin tooling.",
+            ),
+        ]
+        stories = []
+        prior_exists = False
+        story_number = 1
+        for title, names, body in service_story_specs:
+            covered = [name for name in names if has(name)]
+            if not covered:
+                continue
+            stories.append(
+                {
+                    "title": title,
+                    "depends_on": [f"Story {story_number - 1}"] if prior_exists else [],
+                    "body": body,
+                    "covers": covered,
+                }
+            )
+            prior_exists = True
+            story_number += 1
+        if stories:
+            return stories
         ordered_groups = [
             ("Establish Runtime Contract Surface", ["Core Contract Usage", "Nested Structures", "Runtime Integration"]),
             ("Add Validation And Field Semantics", ["Field Validation", "Lifecycle And Field Semantics", "Custom Validators"]),
