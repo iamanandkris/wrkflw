@@ -30,9 +30,13 @@ def default_team_config() -> str:
   - preserve design intent and scope boundaries
   - approve story scope, acceptance clarity, and out-of-scope decisions
   - challenge spec drift before workflow approval
+  - record independent product review verdicts before reconciliation
 - Default write scope:
   - `.workflow/<slug>/decisions.md`
   - `.workflow/<slug>/review-log.md`
+  - `.workflow/<slug>/role-reviews.md`
+  - `.workflow/<slug>/conflicts.md`
+  - `.workflow/<slug>/assumptions.md`
   - `.workflow/<slug>/execution-board.md`
 - Default review authority: required at capability-review, epic-shaping, story-slicing, and release-planning
 
@@ -44,9 +48,13 @@ def default_team_config() -> str:
   - decompose work into PR-sized slices
   - define implementation boundaries and interface decisions
   - coordinate implementer and reviewer handoffs
+  - record architecture and sequencing dissent before implementation approval
 - Default write scope:
   - `.workflow/<slug>/execution-board.md`
   - `.workflow/<slug>/decisions.md`
+  - `.workflow/<slug>/role-reviews.md`
+  - `.workflow/<slug>/conflicts.md`
+  - `.workflow/<slug>/assumptions.md`
   - code and tests when explicitly taking implementation ownership
 - Default review authority: required before implementation-planning approval
 
@@ -57,9 +65,13 @@ def default_team_config() -> str:
 - Responsibilities:
   - implement assigned code and tests
   - report files changed, validation run, and unresolved risks
+  - challenge feasibility, ownership, and maintainability assumptions
 - Default write scope:
   - code, tests, fixtures, docs in assigned ownership area
   - `.workflow/<slug>/execution-board.md`
+  - `.workflow/<slug>/role-reviews.md`
+  - `.workflow/<slug>/conflicts.md`
+  - `.workflow/<slug>/assumptions.md`
 - Default review authority: none
 
 ## Role: Reviewer QA
@@ -70,8 +82,12 @@ def default_team_config() -> str:
   - review implementation against design, workflow, and OpenSpec
   - identify regressions, missing tests, and acceptance mismatches
   - challenge weak assumptions before approval
+  - run bounded red-team checks before spec and PR approval
 - Default write scope:
   - `.workflow/<slug>/review-log.md`
+  - `.workflow/<slug>/role-reviews.md`
+  - `.workflow/<slug>/conflicts.md`
+  - `.workflow/<slug>/assumptions.md`
   - `.workflow/<slug>/execution-board.md`
 - Default review authority: required before review and release-planning approval
 
@@ -114,11 +130,11 @@ def default_agent_assignments(slug: str) -> str:
 
 | Role | Slot | Responsibility Focus | Default Ownership | Allowed Write Paths | Status |
 | --- | --- | --- | --- | --- | --- |
-| Product Owner | product-owner | design intent, scope, acceptance, sequencing | workflow and review artifacts only | .workflow/<slug>/decisions.md, .workflow/<slug>/review-log.md, .workflow/<slug>/execution-board.md | planned |
-| Tech Lead | tech-lead | architecture, decomposition, interfaces, handoffs | workflow artifacts and shared technical decisions | .workflow/<slug>/execution-board.md, .workflow/<slug>/decisions.md | planned |
+| Product Owner | product-owner | design intent, scope, acceptance, sequencing | workflow and review artifacts only | .workflow/<slug>/decisions.md, .workflow/<slug>/review-log.md, .workflow/<slug>/role-reviews.md, .workflow/<slug>/conflicts.md, .workflow/<slug>/assumptions.md, .workflow/<slug>/execution-board.md | planned |
+| Tech Lead | tech-lead | architecture, decomposition, interfaces, handoffs | workflow artifacts and shared technical decisions | .workflow/<slug>/execution-board.md, .workflow/<slug>/decisions.md, .workflow/<slug>/role-reviews.md, .workflow/<slug>/conflicts.md, .workflow/<slug>/assumptions.md | planned |
 | Implementer 1 | implementer-1 | code and tests for the active slice | assigned code/tests only | declare concrete module/file prefixes before parallel team-run | planned |
 | Implementer 2 | implementer-2 | optional parallel code and tests for a second slice | assigned code/tests only | declare concrete module/file prefixes before parallel team-run | optional |
-| Reviewer QA | reviewer-qa | review, challenge, regression and test checks | review artifacts only | .workflow/<slug>/review-log.md, .workflow/<slug>/execution-board.md | planned |
+| Reviewer QA | reviewer-qa | review, challenge, regression and test checks | review artifacts only | .workflow/<slug>/review-log.md, .workflow/<slug>/role-reviews.md, .workflow/<slug>/conflicts.md, .workflow/<slug>/assumptions.md, .workflow/<slug>/execution-board.md | planned |
 
 ## Assignment Rules
 
@@ -126,6 +142,7 @@ def default_agent_assignments(slug: str) -> str:
 - Treat workflow/OpenSpec/design artifacts as the shared contract.
 - Keep implementer ownership disjoint when parallel implementation slots are greater than 1.
 - Express write scope as comma-separated path prefixes in `Allowed Write Paths`.
+- Record independent role verdicts in `role-reviews.md` before reconciliation when a role is reviewing scope, spec, implementation plan, or release readiness.
 """
 
 
@@ -174,6 +191,61 @@ def default_review_log(slug: str) -> str:
 """
 
 
+def default_role_reviews(slug: str) -> str:
+    return f"""# Role Reviews
+
+- Workflow slug: {slug}
+- Current story:
+
+## Review Protocol
+
+- Review the active artifact independently before adopting another role's conclusion when feasible.
+- Use `approve`, `approve-with-changes`, or `block` as the verdict.
+- Mark unsupported claims as assumptions and cite evidence for technical or product claims.
+
+## Reviews
+
+| Date | Story | Role | Verdict | Missing Requirements | Incorrect Assumptions | Risks | Questions | Suggested Changes | Evidence | Red-team Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+"""
+
+
+def default_conflicts(slug: str) -> str:
+    return f"""# Conflict Register
+
+- Workflow slug: {slug}
+- Current story:
+
+## Rules
+
+- Do not hide unresolved disagreement inside prose.
+- Blocking conflicts keep the current gate blocked or pending until the conflict row has a concrete resolution.
+
+## Conflicts
+
+| Date | Story | Raised By | Severity | Conflict | Options | Recommendation | Resolution | Owner |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+"""
+
+
+def default_assumptions(slug: str) -> str:
+    return f"""# Assumption Ledger
+
+- Workflow slug: {slug}
+- Current story:
+
+## Rules
+
+- Record assumptions that affect scope, architecture, data, security, testing, or rollout.
+- Include a validation step whenever the impact of being wrong is material.
+
+## Assumptions
+
+| Date | Story | Source | Confidence | Assumption | Impact If Wrong | Validation Step |
+| --- | --- | --- | --- | --- | --- | --- |
+"""
+
+
 def default_team_minutes(slug: str) -> str:
     return f"""# Team Minutes
 
@@ -210,13 +282,15 @@ def default_runtime_contract(slug: str) -> str:
 - Active story:
 - Active owner:
 - Current handoff:
-- Required shared inputs: design-slice.md, state.md, stories.md, execution-board.md, review-log.md, links.md, workflow-contract.md
-- Required shared outputs: code/tests/docs in assigned scope, review-log.md evidence, execution-board.md notes, team-minutes.md updates
+- Required shared inputs: design-slice.md, state.md, stories.md, execution-board.md, role-reviews.md, conflicts.md, assumptions.md, review-log.md, links.md, workflow-contract.md
+- Required shared outputs: code/tests/docs in assigned scope, role-reviews.md verdicts, conflicts.md entries, assumptions.md updates, review-log.md evidence, execution-board.md notes, team-minutes.md updates
 
 ## Team Runtime Rules
 
 - Only the workflow orchestrator updates canonical `state.md`.
 - Product Owner and Reviewer QA provide challenge and signoff evidence through `review-log.md`.
+- All roles record independent review verdicts in `role-reviews.md` when reviewing artifacts.
+- Unresolved disagreement is tracked in `conflicts.md`; important assumptions are tracked in `assumptions.md`.
 - Active role ownership and handoffs stay visible in `execution-board.md`.
 - Team conversations, challenge outcomes, and handoff notes should be summarized in `team-minutes.md`.
 - This contract prepares the workflow for future delegated multi-agent execution without requiring it today.
@@ -251,6 +325,9 @@ def main() -> int:
     write_if_missing(wf / "agent-assignments.md", default_agent_assignments(args.slug))
     write_if_missing(wf / "execution-board.md", default_execution_board(args.slug))
     write_if_missing(wf / "review-log.md", default_review_log(args.slug))
+    write_if_missing(wf / "role-reviews.md", default_role_reviews(args.slug))
+    write_if_missing(wf / "conflicts.md", default_conflicts(args.slug))
+    write_if_missing(wf / "assumptions.md", default_assumptions(args.slug))
     write_if_missing(wf / "team-minutes.md", default_team_minutes(args.slug))
     write_if_missing(wf / "runtime-contract.md", default_runtime_contract(args.slug))
     write_if_missing(wf / "dependencies.md", default_dependencies(args.slug))

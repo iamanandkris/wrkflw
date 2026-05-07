@@ -148,6 +148,9 @@ including:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `role-reviews.md`
+- `conflicts.md`
+- `assumptions.md`
 - `team-minutes.md`
 - `runtime-contract.md`
 - `agent-sync-ledger.md`
@@ -224,6 +227,9 @@ Each workflow lane also gets:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `role-reviews.md`
+- `conflicts.md`
+- `assumptions.md`
 - `team-minutes.md`
 - `runtime-contract.md`
 - `dependencies.md`
@@ -239,6 +245,9 @@ Current behavioral integration:
 - `review-log.md` is used for late-stage challenge/signoff checks:
   - `Reviewer QA` evidence is required before `release-planning` when reviewer signoff is enabled
   - `Product Owner` evidence is required before `done` when product-owner signoff is enabled
+- `role-reviews.md` records independent role verdicts before reconciliation, including missing requirements, incorrect assumptions, risks, questions, suggested changes, evidence, and red-team notes
+- `conflicts.md` records unresolved disagreements; open blocking conflicts prevent gate advancement until the conflict row has a concrete resolution
+- `assumptions.md` records assumptions and contested assumptions that need validation before they become hidden requirements
 - `team-minutes.md` records staffing decisions, role assignments, team-run dispatch preparation, challenge discussions, and review-sync outcomes
 - `runtime-contract.md` records the current file-driven team runtime contract and prepares the workflow for future delegated-agent execution without claiming automatic spawning today
 - `dependencies.md` records first-class lane dependencies such as `Depends on`, `Blocked by`, and `Unlocks`
@@ -255,10 +264,11 @@ Team control commands:
 - `wrkflw:challenge`
   - append structured review/challenge evidence to `review-log.md` and surface it in workflow state
 - `wrkflw:review-sync`
-  - resynchronize workflow state and execution-board review notes from `review-log.md`
+  - resynchronize workflow state and execution-board review notes from review/collaboration evidence
+  - keep open blocking conflicts visible instead of clearing blocked workflow state
 - `wrkflw:team-sync`
   - record delegated role progress such as implementer completion, reviewer start, or handoff notes
-  - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, `review-log.md`, and implementation-plan context from that role update
+  - synchronize `execution-board.md`, `agent-assignments.md`, `team-minutes.md`, `role-reviews.md`, `conflicts.md`, `assumptions.md`, `review-log.md`, and implementation-plan context from that role update
   - validate reported changed files against the role's allowed write scope
 - `wrkflw:team-sync-all`
   - ingest every unsynchronized structured result envelope from `.workflow/<slug>/agent-results/`
@@ -295,14 +305,27 @@ Expected sequence:
 - each delegated role should return a structured final report with:
   - `Role`
   - `Status`
+  - `Verdict`
   - `Summary`
   - `Files changed`
   - `Validation run`
+  - `Missing requirements`
+  - `Incorrect assumptions`
+  - `Risks`
+  - `Questions`
+  - `Suggested changes`
+  - `Evidence`
+  - `Conflict entries`
+  - `Assumption updates`
+  - `Red-team notes`
   - `Findings`
   - `Follow-up`
 - apply `wrkflw:team-sync` updates sequentially rather than in parallel, because they update shared workflow coordination files
 - prefer storing each structured final report in `.workflow/<slug>/agent-results/` and using `wrkflw:team-sync-all`; pasting directly into `wrkflw:team-sync` is still supported
 - `wrkflw:team-sync` can infer role/status from pasted agent output when the output is clear, but explicit `role:` and `status:` remain safer
+- every report with a verdict or review fields is written into `role-reviews.md`
+- report conflict entries are written into `conflicts.md`; blocking conflicts keep gates blocked until resolved
+- report assumption updates and incorrect assumptions are written into `assumptions.md`
 - reviewer and product-owner reports with findings are written into `review-log.md` automatically; clean reviewer/product-owner reports create explicit signoff evidence
 - Codex can then spawn the role agents from those packets:
   - `Product Owner`

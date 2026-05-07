@@ -158,7 +158,7 @@ def main() -> int:
     )
     write_if_missing(
         wf / "decisions.md",
-        "# Decisions\n\n| Date | Decision | Reason |\n|---|---|---|\n",
+        "# Decisions\n\n| Date | Decision | Context | Options Considered | Why | Consequences | Revisit Trigger |\n| --- | --- | --- | --- | --- | --- | --- |\n",
     )
     write_if_missing(
         wf / "history.md",

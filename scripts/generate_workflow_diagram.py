@@ -226,12 +226,62 @@ def parse_review_log_summary(wf: Path) -> tuple[int, str]:
     return count, ", ".join(roles) if roles else "-"
 
 
+def parse_table_rows(path: Path) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for raw_line in read_text(path).splitlines():
+        stripped = raw_line.strip()
+        if not stripped.startswith("|") or "---" in stripped:
+            continue
+        parts = [part.strip() for part in stripped.strip("|").split("|")]
+        if parts and parts[0] not in {"Date", "Role", "Timestamp"}:
+            rows.append(parts)
+    return rows
+
+
+def parse_role_review_summary(wf: Path) -> tuple[int, str, int]:
+    count = 0
+    blocked = 0
+    roles: list[str] = []
+    for row in parse_table_rows(wf / "role-reviews.md"):
+        if len(row) < 4:
+            continue
+        count += 1
+        role = row[2]
+        verdict = row[3].strip().lower()
+        if role and role not in roles:
+            roles.append(role)
+        if verdict in {"block", "blocked"}:
+            blocked += 1
+    return count, ", ".join(roles) if roles else "-", blocked
+
+
+def parse_conflict_summary(wf: Path) -> tuple[int, int]:
+    count = 0
+    open_blocking = 0
+    for row in parse_table_rows(wf / "conflicts.md"):
+        if len(row) < 9:
+            continue
+        count += 1
+        severity = row[3].strip().lower()
+        resolution = row[7].strip().lower()
+        if severity in {"blocking", "blocker", "critical", "high"} and resolution in {"", "-", "open", "pending", "unresolved", "todo", "tbd"}:
+            open_blocking += 1
+    return count, open_blocking
+
+
+def parse_assumption_count(wf: Path) -> int:
+    return len(parse_table_rows(wf / "assumptions.md"))
+
+
 def parse_runtime_contract(wf: Path) -> dict[str, str]:
     values = parse_kv_list(wf / "runtime-contract.md")
     return {
         "Runtime mode": values.get("Runtime mode", "-").strip() or "-",
         "Delegated execution ready": values.get("Delegated execution ready", "-").strip() or "-",
         "Recorded review roles": values.get("Recorded review roles", "-").strip() or "-",
+        "Recorded role review roles": values.get("Recorded role review roles", "-").strip() or "-",
+        "Open blocking conflicts": values.get("Open blocking conflicts", "-").strip() or "-",
+        "Assumption entries": values.get("Assumption entries", "-").strip() or "-",
     }
 
 
@@ -871,6 +921,9 @@ def write_flow_diagram(
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
     review_count, review_roles = parse_review_log_summary(wf)
+    role_review_count, role_review_roles, blocked_verdicts = parse_role_review_summary(wf)
+    conflict_count, open_blocking_conflicts = parse_conflict_summary(wf)
+    assumption_count = parse_assumption_count(wf)
     runtime = parse_runtime_contract(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
@@ -932,6 +985,10 @@ def write_flow_diagram(
             f"Parallel slots: {team.get('Parallel implementation slots', '-') or '-'}",
             f"Runtime mode: {runtime.get('Runtime mode', '-') or '-'}",
             f"Delegated ready: {runtime.get('Delegated execution ready', '-') or '-'}",
+            f"Role reviews: {role_review_count} ({role_review_roles})",
+            f"Blocked verdicts: {blocked_verdicts}",
+            f"Conflicts: {conflict_count} open-blocking: {open_blocking_conflicts}",
+            f"Assumptions: {assumption_count}",
             f"Next: {state.get('Next action', '-') or '-'}",
             "end note",
             "note right of epic_shaping",
@@ -949,6 +1006,8 @@ def write_flow_diagram(
             f"Handoff: {board.get('Current handoff', '-') or '-'}",
             f"Review entries: {review_count} ({review_roles})",
             f"Runtime review roles: {runtime.get('Recorded review roles', '-') or '-'}",
+            f"Role reviews: {role_review_count} ({role_review_roles})",
+            f"Open blocking conflicts: {runtime.get('Open blocking conflicts', '-') or '-'}",
             *execution_lane_lines(wf),
             *implementer_scope_lines(wf),
             *active_task_lines,
@@ -972,6 +1031,9 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
     review_count, review_roles = parse_review_log_summary(wf)
+    role_review_count, role_review_roles, blocked_verdicts = parse_role_review_summary(wf)
+    conflict_count, open_blocking_conflicts = parse_conflict_summary(wf)
+    assumption_count = parse_assumption_count(wf)
     runtime = parse_runtime_contract(wf)
     events = parse_history(wf / "history.md")
     progress = story_progress_from_history(stories, events, wf, state)
@@ -1029,6 +1091,10 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  Active owner: {board.get("Active owner", "-") or "-"}',
         f'  Current handoff: {board.get("Current handoff", "-") or "-"}',
         f'  Review entries: {review_count} ({review_roles})',
+        f'  Role reviews: {role_review_count} ({role_review_roles})',
+        f'  Blocked verdicts: {blocked_verdicts}',
+        f'  Conflicts: {conflict_count} open-blocking: {open_blocking_conflicts}',
+        f'  Assumptions: {assumption_count}',
         *[f"  {line}" for line in execution_lane_lines(wf)],
         *[f"  {line}" for line in implementer_scope_lines(wf)],
         f'  Challenge: {state.get("Challenge note", "-") or "-"}',

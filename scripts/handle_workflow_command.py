@@ -746,6 +746,52 @@ def unresolved_review_summary(path: Path) -> str:
     return "; ".join(findings[:3])
 
 
+OPEN_RESOLUTION_VALUES = {"", "-", "open", "pending", "unresolved", "todo", "tbd"}
+BLOCKING_CONFLICT_VALUES = {"blocking", "blocker", "critical", "high"}
+
+
+def unresolved_review_block_summary(path: Path) -> str:
+    findings: list[str] = []
+    for row in parse_markdown_table_rows(path):
+        if len(row) < 5:
+            continue
+        role, severity, finding, resolution = row[1], row[2], row[3], row[4]
+        if severity.strip().lower() not in BLOCKING_CONFLICT_VALUES:
+            continue
+        if resolution.strip().lower() not in OPEN_RESOLUTION_VALUES:
+            continue
+        if finding.strip():
+            findings.append(f"{role} ({severity}): {finding}")
+    return "; ".join(findings[:3])
+
+
+def unresolved_conflict_summary(path: Path, blocking_only: bool = True) -> str:
+    conflicts: list[str] = []
+    for row in parse_markdown_table_rows(path):
+        if len(row) < 9:
+            continue
+        _, _, raised_by, severity, conflict, _, _, resolution, _ = row[:9]
+        severity_clean = severity.strip().lower()
+        resolution_clean = resolution.strip().lower()
+        if blocking_only and severity_clean not in BLOCKING_CONFLICT_VALUES:
+            continue
+        if resolution_clean not in OPEN_RESOLUTION_VALUES:
+            continue
+        if conflict.strip():
+            conflicts.append(f"{raised_by} ({severity}): {conflict}")
+    return "; ".join(conflicts[:3])
+
+
+def collaboration_block(root: Path, workflow_slug: str) -> tuple[bool, str]:
+    review_summary = unresolved_review_block_summary(root / ".workflow" / workflow_slug / "review-log.md")
+    if review_summary:
+        return True, f"Unresolved blocking review finding: {review_summary}"
+    summary = unresolved_conflict_summary(root / ".workflow" / workflow_slug / "conflicts.md")
+    if summary:
+        return True, f"Unresolved blocking collaboration conflict: {summary}"
+    return False, ""
+
+
 def replace_or_append_bullet(path: Path, key: str, value: str) -> None:
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     target = f"- {key}:"
@@ -798,6 +844,7 @@ def parse_directives(raw: str | None) -> dict[str, str]:
 REPORT_LABELS = {
     "role": "role",
     "status": "status",
+    "verdict": "verdict",
     "summary": "summary",
     "note": "summary",
     "follow-up": "follow-up",
@@ -809,7 +856,43 @@ REPORT_LABELS = {
     "changed files": "files-changed",
     "validation run": "validation-run",
     "validation": "validation-run",
+    "missing requirements": "missing-requirements",
+    "missing requirement": "missing-requirements",
+    "incorrect assumptions": "incorrect-assumptions",
+    "incorrect assumption": "incorrect-assumptions",
+    "risks": "risks",
+    "risk": "risks",
+    "questions": "questions",
+    "question": "questions",
+    "suggested changes": "suggested-changes",
+    "suggested change": "suggested-changes",
+    "evidence": "evidence",
+    "conflict entries": "conflict-entries",
+    "conflict entry": "conflict-entries",
+    "conflicts": "conflict-entries",
+    "assumption updates": "assumption-updates",
+    "assumption update": "assumption-updates",
+    "assumptions": "assumption-updates",
+    "red-team notes": "red-team-notes",
+    "red team notes": "red-team-notes",
+    "red-team note": "red-team-notes",
+    "red team note": "red-team-notes",
     "findings": "findings",
+}
+
+REPORT_LIST_FIELDS = {
+    "files-changed",
+    "validation-run",
+    "missing-requirements",
+    "incorrect-assumptions",
+    "risks",
+    "questions",
+    "suggested-changes",
+    "evidence",
+    "conflict-entries",
+    "assumption-updates",
+    "red-team-notes",
+    "findings",
 }
 
 
@@ -828,14 +911,14 @@ def parse_structured_agent_report(raw: str | None) -> dict[str, object]:
             raw_key, raw_value = stripped.split(":", 1)
             normalized = REPORT_LABELS.get(raw_key.strip().lower())
             if normalized:
-                if current_key and current_key in {"files-changed", "validation-run", "findings"}:
+                if current_key and current_key in REPORT_LIST_FIELDS:
                     values[current_key] = list(current_items)
                 elif current_key and current_items and current_key not in values:
                     values[current_key] = " ".join(current_items).strip()
                 current_key = normalized
                 current_items = []
                 value = raw_value.strip()
-                if normalized in {"files-changed", "validation-run", "findings"}:
+                if normalized in REPORT_LIST_FIELDS:
                     if value and value.lower() != "none":
                         current_items.append(value)
                     elif value.lower() == "none":
@@ -848,7 +931,7 @@ def parse_structured_agent_report(raw: str | None) -> dict[str, object]:
                 continue
         if stripped.startswith("- "):
             item = stripped[2:].strip()
-            if current_key in {"files-changed", "validation-run", "findings"}:
+            if current_key in REPORT_LIST_FIELDS:
                 if item.lower() == "none":
                     values[current_key] = []
                     current_key = None
@@ -859,7 +942,7 @@ def parse_structured_agent_report(raw: str | None) -> dict[str, object]:
                 current_items.append(item)
         elif current_key:
             current_items.append(stripped)
-    if current_key and current_key in {"files-changed", "validation-run", "findings"}:
+    if current_key and current_key in REPORT_LIST_FIELDS:
         values[current_key] = list(current_items)
     elif current_key and current_items and current_key not in values:
         values[current_key] = " ".join(current_items).strip()
@@ -1024,6 +1107,7 @@ def write_assignment_rows(path: Path, workflow_slug: str, rows: dict[str, dict[s
             "- Treat workflow/OpenSpec/design artifacts as the shared contract.",
             "- Keep implementer ownership disjoint when parallel implementation slots are greater than 1.",
             "- Express write scope as comma-separated path prefixes in `Allowed Write Paths`.",
+            "- Record independent role verdicts in `role-reviews.md` before reconciliation when reviewing scope, spec, implementation plan, or release readiness.",
             "",
         ]
     )
@@ -1097,6 +1181,133 @@ def finding_severity_and_text(raw: str) -> tuple[str, str]:
     if match:
         return match.group(1).lower(), match.group(2).strip()
     return "medium", text
+
+
+def conflict_severity_and_text(raw: str) -> tuple[str, str]:
+    direct = re.match(r"^(blocking|important|minor)\s*:\s*(.+)$", raw.strip(), flags=re.IGNORECASE)
+    if direct:
+        return direct.group(1).lower(), direct.group(2).strip()
+    severity, text = finding_severity_and_text(raw)
+    if severity in {"critical", "high"}:
+        return "blocking", text
+    if severity == "medium":
+        return "important", text
+    if severity in {"low", "info"}:
+        return "minor", text
+    lowered = severity.lower()
+    if lowered in {"blocking", "important", "minor"}:
+        return lowered, text
+    return "important", text
+
+
+def table_cell(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", value).strip()
+    return cleaned.replace("|", "\\|") if cleaned else "-"
+
+
+def list_table_cell(items: list[str]) -> str:
+    return "; ".join(item for item in items if item.strip()) or "-"
+
+
+def ensure_table_file(path: Path, title: str, header: str, divider: str) -> str:
+    text = path.read_text(encoding="utf-8") if path.exists() else f"# {title}\n\n{header}\n{divider}\n"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def append_role_review_entry(
+    path: Path,
+    story: str,
+    role: str,
+    verdict: str,
+    missing_requirements: list[str],
+    incorrect_assumptions: list[str],
+    risks: list[str],
+    questions: list[str],
+    suggested_changes: list[str],
+    evidence: list[str],
+    red_team_notes: list[str],
+) -> None:
+    text = ensure_table_file(
+        path,
+        "Role Reviews",
+        "| Date | Story | Role | Verdict | Missing Requirements | Incorrect Assumptions | Risks | Questions | Suggested Changes | Evidence | Red-team Notes |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    )
+    date_value = datetime.now(timezone.utc).date().isoformat()
+    row = [
+        date_value,
+        story or "-",
+        role,
+        verdict or "-",
+        list_table_cell(missing_requirements),
+        list_table_cell(incorrect_assumptions),
+        list_table_cell(risks),
+        list_table_cell(questions),
+        list_table_cell(suggested_changes),
+        list_table_cell(evidence),
+        list_table_cell(red_team_notes),
+    ]
+    path.write_text(text + "| " + " | ".join(table_cell(item) for item in row) + " |\n", encoding="utf-8")
+
+
+def append_conflict_entry(
+    path: Path,
+    story: str,
+    role: str,
+    severity: str,
+    conflict: str,
+    recommendation: str,
+    resolution: str,
+) -> None:
+    text = ensure_table_file(
+        path,
+        "Conflict Register",
+        "| Date | Story | Raised By | Severity | Conflict | Options | Recommendation | Resolution | Owner |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    )
+    date_value = datetime.now(timezone.utc).date().isoformat()
+    row = [
+        date_value,
+        story or "-",
+        role,
+        severity or "important",
+        conflict,
+        "-",
+        recommendation or "-",
+        resolution or "open",
+        role,
+    ]
+    path.write_text(text + "| " + " | ".join(table_cell(item) for item in row) + " |\n", encoding="utf-8")
+
+
+def append_assumption_entry(
+    path: Path,
+    story: str,
+    role: str,
+    confidence: str,
+    assumption: str,
+    impact: str,
+    validation_step: str,
+) -> None:
+    text = ensure_table_file(
+        path,
+        "Assumption Ledger",
+        "| Date | Story | Source | Confidence | Assumption | Impact If Wrong | Validation Step |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    )
+    date_value = datetime.now(timezone.utc).date().isoformat()
+    row = [
+        date_value,
+        story or "-",
+        role,
+        confidence or "unknown",
+        assumption,
+        impact or "-",
+        validation_step or "-",
+    ]
+    path.write_text(text + "| " + " | ".join(table_cell(item) for item in row) + " |\n", encoding="utf-8")
 
 
 def append_review_log_entry(
@@ -1439,12 +1650,26 @@ def review_log_roles(path: Path) -> set[str]:
     return roles
 
 
+def role_review_roles(path: Path) -> set[str]:
+    roles: set[str] = set()
+    for row in parse_markdown_table_rows(path):
+        if len(row) >= 4 and row[2]:
+            roles.add(row[2])
+    return roles
+
+
+def table_entry_count(path: Path) -> int:
+    return len(parse_markdown_table_rows(path))
+
+
 def sync_runtime_contract(root: Path, workflow_slug: str, state: dict[str, str]) -> None:
     runtime_path = root / ".workflow" / workflow_slug / "runtime-contract.md"
     if not runtime_path.exists():
         return
     board = parse_kv_list(root / ".workflow" / workflow_slug / "execution-board.md")
     roles = sorted(review_log_roles(root / ".workflow" / workflow_slug / "review-log.md"))
+    role_review_role_names = sorted(role_review_roles(root / ".workflow" / workflow_slug / "role-reviews.md"))
+    open_conflicts = unresolved_conflict_summary(root / ".workflow" / workflow_slug / "conflicts.md")
     runtime_values = parse_kv_list(runtime_path)
     runtime_mode = runtime_values.get("Runtime mode", "file-driven").strip() or "file-driven"
     replace_or_append_bullet(runtime_path, "Active story", active_story_name(state) or "-")
@@ -1459,6 +1684,31 @@ def sync_runtime_contract(root: Path, workflow_slug: str, state: dict[str, str])
         runtime_path,
         "Recorded review roles",
         ", ".join(roles) if roles else "-",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Recorded role review roles",
+        ", ".join(role_review_role_names) if role_review_role_names else "-",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Open blocking conflicts",
+        open_conflicts or "-",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Assumption entries",
+        str(table_entry_count(root / ".workflow" / workflow_slug / "assumptions.md")),
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Required shared inputs",
+        "design-slice.md, state.md, stories.md, execution-board.md, role-reviews.md, conflicts.md, assumptions.md, review-log.md, links.md, workflow-contract.md",
+    )
+    replace_or_append_bullet(
+        runtime_path,
+        "Required shared outputs",
+        "code/tests/docs in assigned scope, role-reviews.md verdicts, conflicts.md entries, assumptions.md updates, review-log.md evidence, execution-board.md notes, team-minutes.md updates",
     )
     replace_or_append_bullet(
         runtime_path,
@@ -1488,6 +1738,9 @@ def sync_team_story_headers(root: Path, workflow_slug: str, story: str) -> None:
     if not story or story == "-":
         return
     replace_or_append_bullet(root / ".workflow" / workflow_slug / "review-log.md", "Current story", story)
+    replace_or_append_bullet(root / ".workflow" / workflow_slug / "role-reviews.md", "Current story", story)
+    replace_or_append_bullet(root / ".workflow" / workflow_slug / "conflicts.md", "Current story", story)
+    replace_or_append_bullet(root / ".workflow" / workflow_slug / "assumptions.md", "Current story", story)
     replace_or_append_bullet(team_minutes_path(root, workflow_slug), "Current story", story)
 
 
@@ -1578,6 +1831,16 @@ def handle_team_sync(
     reviewer = directives.get("reviewer", "").strip() or str(report.get("reviewer", "")).strip() or None
     changed_paths = report_list(report, "files-changed")
     validation_runs = report_list(report, "validation-run")
+    verdict = str(report.get("verdict", "")).strip()
+    missing_requirements = report_list(report, "missing-requirements")
+    incorrect_assumptions = report_list(report, "incorrect-assumptions")
+    risks = report_list(report, "risks")
+    questions = report_list(report, "questions")
+    suggested_changes = report_list(report, "suggested-changes")
+    evidence = report_list(report, "evidence")
+    conflict_entries = report_list(report, "conflict-entries")
+    assumption_updates = report_list(report, "assumption-updates")
+    red_team_notes = report_list(report, "red-team-notes")
     findings = report_list(report, "findings")
     active_story = active_story_name(state) or "-"
     sync_team_story_headers(root, workflow_slug, active_story)
@@ -1600,6 +1863,8 @@ def handle_team_sync(
     details: list[str] = []
     if sync_source:
         details.append(f"source: {sync_source}")
+    if verdict:
+        details.append(f"verdict: {verdict}")
     if changed_paths:
         details.append("files: " + ", ".join(changed_paths[:4]))
     if validation_runs:
@@ -1615,6 +1880,88 @@ def handle_team_sync(
     if role in rows:
         rows[role]["Status"] = status
         write_assignment_rows(assignments_path, workflow_slug, rows)
+
+    review_content_present = bool(
+        verdict
+        or missing_requirements
+        or incorrect_assumptions
+        or risks
+        or questions
+        or suggested_changes
+        or evidence
+        or red_team_notes
+    )
+    if review_content_present:
+        append_role_review_entry(
+            root / ".workflow" / workflow_slug / "role-reviews.md",
+            active_story,
+            role,
+            verdict,
+            missing_requirements,
+            incorrect_assumptions,
+            risks,
+            questions,
+            suggested_changes,
+            evidence,
+            red_team_notes,
+        )
+
+    blocking_conflicts: list[str] = []
+    if conflict_entries:
+        for raw_conflict in conflict_entries:
+            conflict_severity, conflict_text = conflict_severity_and_text(raw_conflict)
+            if not conflict_text:
+                continue
+            append_conflict_entry(
+                root / ".workflow" / workflow_slug / "conflicts.md",
+                active_story,
+                role,
+                conflict_severity,
+                conflict_text,
+                suggested_changes[0] if suggested_changes else follow_up,
+                "open",
+            )
+            if conflict_severity == "blocking":
+                blocking_conflicts.append(conflict_text)
+
+    verdict_clean = verdict.strip().lower()
+    if verdict_clean in {"block", "blocked"} and not conflict_entries:
+        conflict_text = note or "review verdict requires changes before the gate can advance"
+        append_conflict_entry(
+            root / ".workflow" / workflow_slug / "conflicts.md",
+            active_story,
+            role,
+            "blocking",
+            conflict_text,
+            suggested_changes[0] if suggested_changes else follow_up,
+            "open",
+        )
+        blocking_conflicts.append(conflict_text)
+
+    for raw_assumption in assumption_updates:
+        if not raw_assumption.strip():
+            continue
+        append_assumption_entry(
+            root / ".workflow" / workflow_slug / "assumptions.md",
+            active_story,
+            role,
+            "unknown",
+            raw_assumption,
+            "not recorded",
+            follow_up or "validate before approving if material",
+        )
+    for raw_assumption in incorrect_assumptions:
+        if not raw_assumption.strip():
+            continue
+        append_assumption_entry(
+            root / ".workflow" / workflow_slug / "assumptions.md",
+            active_story,
+            role,
+            "contested",
+            raw_assumption,
+            "artifact may be wrong if this assumption remains unresolved",
+            follow_up or "resolve during reconciliation",
+        )
 
     if role in {"Reviewer QA", "Product Owner"}:
         if findings:
@@ -1677,6 +2024,16 @@ def handle_team_sync(
                     for item in findings[:3]
                 )
                 state["Next action"] = follow_up or f"review and respond to the {role} findings for {active_story}"
+        if verdict_clean in {"block", "blocked"}:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = f"{role} blocked {active_story}: {note or 'review verdict requires changes'}"
+            state["Challenge note"] = f"{role} verdict: {verdict_clean}"
+            state["Next action"] = follow_up or f"resolve the {role} review block before continuing"
+        elif blocking_conflicts:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = f"{role} reported blocking conflict for {active_story}: {'; '.join(blocking_conflicts[:2])}"
+            state["Challenge note"] = "; ".join(f"{role} conflict: {item}" for item in blocking_conflicts[:3])
+            state["Next action"] = follow_up or f"resolve blocking conflicts before continuing"
     return state
 
 
@@ -1719,6 +2076,9 @@ def handle_team_sync_all(
 
 def team_review_block(root: Path, workflow_slug: str, stage: str) -> tuple[bool, str]:
     settings = parse_team_settings(root, workflow_slug)
+    blocked, conflict_reason = collaboration_block(root, workflow_slug)
+    if blocked:
+        return True, conflict_reason
     review_roles = review_log_roles(root / ".workflow" / workflow_slug / "review-log.md")
     reviewer_required = settings.get("Reviewer required", "false").strip().lower() in {"true", "1", "yes", "on"}
     po_required = settings.get("Product owner required", "false").strip().lower() in {"true", "1", "yes", "on"}
@@ -1924,15 +2284,21 @@ def handle_review_sync(
     )
     current = ensure_stage(state.get("Current stage") or "discuss")
     unresolved = unresolved_review_summary(review_path)
-    blocked, _ = team_review_block(root, workflow_slug, current)
+    unresolved_conflicts = unresolved_conflict_summary(root / ".workflow" / workflow_slug / "conflicts.md")
+    blocked, block_reason = team_review_block(root, workflow_slug, current)
     if not blocked and state.get("Human gate status") == "blocked":
         blocked_reason = state.get("Blocked reason", "")
-        if "signoff is missing in review-log.md" in blocked_reason or not unresolved:
+        if "signoff is missing in review-log.md" in blocked_reason or (not unresolved and not unresolved_conflicts):
             state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
             state["Blocked reason"] = ""
     state["Item note"] = f"review evidence synchronized: {summary}"
-    state["Challenge note"] = unresolved
-    state["Next action"] = "review evidence is synchronized; approve when the current gate is satisfied"
+    state["Challenge note"] = "; ".join(item for item in [unresolved, unresolved_conflicts] if item)
+    if blocked:
+        state["Human gate status"] = "blocked"
+        state["Blocked reason"] = block_reason
+        state["Next action"] = "resolve blocking review findings or record a concrete conflict resolution before approval"
+    else:
+        state["Next action"] = "review evidence is synchronized; approve when the current gate is satisfied"
     return state
 
 
@@ -1987,7 +2353,7 @@ def handle_team_run(
         "team-run",
         "Workflow Orchestrator, Product Owner, Tech Lead, Implementer 1, Implementer 2, Reviewer QA",
         f"Prepared delegated dispatch for {active_story}",
-        "Run the role packets and record findings/handoffs in team-minutes.md and review-log.md",
+        "Run the role packets and record verdicts, conflicts, assumptions, findings, and handoffs through team-sync",
     )
     state["Item note"] = f"team dispatch prepared for {active_story}"
     state["Challenge note"] = ""
@@ -2117,12 +2483,18 @@ def enter_stage(
             state["Blocked reason"] = reason
             state["Next action"] = "initialize OpenSpec or use an explicit override before continuing"
             return state
+        blocked, conflict_reason = collaboration_block(root, workflow_slug)
+        if blocked:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = conflict_reason
+            state["Next action"] = "resolve blocking review findings or record a concrete conflict resolution before continuing"
+            return state
         if stage == "done":
             blocked_by_team, team_reason = team_review_block(root, workflow_slug, stage)
             if blocked_by_team:
                 state["Human gate status"] = "blocked"
                 state["Blocked reason"] = team_reason
-                state["Next action"] = "record the required team review/signoff in review-log.md before closing the workflow"
+                state["Next action"] = "resolve collaboration blocks or record the required team review/signoff before closing the workflow"
                 return state
             drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)
             if drift:
@@ -2136,7 +2508,7 @@ def enter_stage(
             if blocked_by_team:
                 state["Human gate status"] = "blocked"
                 state["Blocked reason"] = team_reason
-                state["Next action"] = "record the required team review/signoff in review-log.md before release planning continues"
+                state["Next action"] = "resolve collaboration blocks or record the required team review/signoff before release planning continues"
                 return state
         if stage != "done":
             drift, drift_reason = detect_artifact_drift(root, workflow_slug, stage, state)

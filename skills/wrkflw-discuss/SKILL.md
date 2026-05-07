@@ -76,6 +76,9 @@ with files such as:
 - `agent-assignments.md`
 - `execution-board.md`
 - `review-log.md`
+- `role-reviews.md`
+- `conflicts.md`
+- `assumptions.md`
 - `design-slice.md` when a broad design file is normalized into an epic-specific workflow slice
 - `design-seed.md` when a design file is used
 
@@ -125,6 +128,10 @@ Team execution model:
 - `team-minutes.md` should record staffing updates, assignment decisions, team discussion outcomes, challenge summaries, and handoff notes
 - `runtime-contract.md` should record the file-driven runtime contract that keeps shared inputs, outputs, ownership, and state authority explicit
 - `dependencies.md` should record first-class lane dependencies such as `Depends on`, `Blocked by`, `Satisfies`, and `Unlocks`
+- `role-reviews.md` should record independent role reviews before reconciliation so weak agreement is visible
+- `conflicts.md` should record unresolved disagreements, options, recommendations, and chosen resolutions
+- `assumptions.md` should record important assumptions, confidence, impact if wrong, and validation steps
+- `decisions.md` should record reconciled decisions with context, options considered, consequences, and revisit triggers
 - `agent-results/` should store structured delegated-agent result envelopes
 - `agent-sync-ledger.md` should record which result envelopes have already been synchronized
 - `team-dispatch.md` should record the current delegated execution packet index for the active workflow lane
@@ -134,11 +141,54 @@ Team execution model:
 - `wrkflw:staff` should update team-config or team-overrides without forcing the user to hand-edit markdown for common staffing changes
 - `wrkflw:assign` should update per-epic role ownership in `agent-assignments.md`
 - `wrkflw:challenge` should record structured team challenges in `review-log.md` and reflect them in workflow state
-- `wrkflw:review-sync` should resynchronize review evidence back into workflow state and execution-board visibility
+- `wrkflw:review-sync` should resynchronize review and collaboration evidence back into workflow state and execution-board visibility
 - `wrkflw:team-sync` should synchronize delegated role outcomes such as implementer completion, reviewer start, handoff notes, and lane status back into `execution-board.md`, `agent-assignments.md`, and `team-minutes.md`
 - `wrkflw:team-sync-all` should ingest any unsynchronized structured result envelopes from `.workflow/<slug>/agent-results/` and update `agent-sync-ledger.md`
 - team-control commands should also append readable minutes to `team-minutes.md` so the collaboration history is explicit
 - `wrkflw:team-run` should generate a delegated execution packet set and, when the user has explicitly asked for multi-agent execution, use those packets to spawn real role agents
+
+Collaborative multi-agent review model:
+- prefer artifact-centered collaboration over unstructured agent chat
+- use this sequence for planning, specification, implementation planning, and review:
+  1. one role drafts or updates the artifact
+  2. Product Owner, Tech Lead, Implementer, and Reviewer QA perform independent reviews against the artifact
+  3. each role records a structured verdict before reading or adopting other roles' conclusions when feasible
+  4. the workflow compares reviews, writes disagreements into `conflicts.md`, updates `assumptions.md`, and only then reconciles the artifact
+  5. the orchestrator records decisions in `decisions.md` and returns unresolved blocking conflicts to the nearest human gate
+- role reviews should use this structure:
+  - `Role`
+  - `Verdict: approve|approve-with-changes|block`
+  - `Missing requirements`
+  - `Incorrect assumptions`
+  - `Risks`
+  - `Questions`
+  - `Suggested changes`
+  - `Evidence`
+  - `Red-team notes`
+- role bias should be explicit:
+  - Product Owner challenges value, user outcomes, scope, acceptance criteria, and non-goals
+  - Tech Lead challenges architecture, boundaries, sequencing, dependencies, and integration risk
+  - Implementer challenges feasibility, implementation complexity, maintainability, and file ownership
+  - Reviewer QA challenges testability, edge cases, regressions, and acceptance proof
+  - optional Security/Ops challenges auth, data exposure, auditability, rollout, and operational risk
+  - the orchestrator integrates and reconciles; it should not erase unresolved dissent
+- conflict entries should capture:
+  - `Conflict`
+  - `Raised by`
+  - `Artifact section`
+  - `Severity: blocking|important|minor`
+  - `Options`
+  - `Recommendation`
+  - `Resolution`
+  - `Owner`
+- assumption entries should capture:
+  - `Assumption`
+  - `Source`
+  - `Confidence`
+  - `Impact if wrong`
+  - `Validation step`
+- before spec approval and PR approval, run one bounded red-team pass: identify the most likely way the current artifact fails product acceptance, implementation, testing, security, or rollout
+- a role may approve with changes, but a blocking Product Owner, Tech Lead, Reviewer QA, or Security/Ops finding must keep the current gate pending or blocked until resolved in the relevant review or conflict artifact
 
 Capability inventory should capture:
 - the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
@@ -225,15 +275,25 @@ Behavior expectations:
 - `wrkflw:assign "..."` should treat the reason text as role-to-responsibility mappings for `agent-assignments.md`.
 - `wrkflw:assign "..."` should also accept explicit ownership directives such as `Implementer 1 ownership: src/session/state, test/session/state`.
 - `wrkflw:challenge "..."` should support structured review evidence such as `role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete`.
-- `wrkflw:review-sync "..."` should refresh workflow visibility from the accumulated `review-log.md` evidence without pretending that real autonomous agent spawning already exists.
+- `wrkflw:review-sync "..."` should refresh workflow visibility from accumulated review/collaboration evidence without pretending that real autonomous agent spawning already exists.
 - `wrkflw:team-run "..."` should only activate when the workflow already has an active story and is at `implementation-planning`, `implementation`, or `review`.
 - when `wrkflw:team-run` is used, first run the command handler so `.workflow/<slug>/team-dispatch.md` and `.workflow/<slug>/dispatch/*.md` are generated.
 - dispatch packets should require each delegated role to return a structured final report with:
   - `Role`
   - `Status`
+  - `Verdict`
   - `Summary`
   - `Files changed`
   - `Validation run`
+  - `Missing requirements`
+  - `Incorrect assumptions`
+  - `Risks`
+  - `Questions`
+  - `Suggested changes`
+  - `Evidence`
+  - `Conflict entries`
+  - `Assumption updates`
+  - `Red-team notes`
   - `Findings`
   - `Follow-up`
 - after each delegated role returns, run `wrkflw:team-sync` with structured status updates such as `role: Implementer 1; status: done; note: gameplay loop landed; follow-up: Reviewer QA review the lane`.
@@ -242,6 +302,9 @@ Behavior expectations:
 - when the returned agent output already clearly states what changed or that no serious findings remain, `wrkflw:team-sync` may infer role/status from that pasted output, but explicit `role` and `status` are still preferred.
 - `wrkflw:team-sync` should validate any reported changed files against the role's `Allowed Write Paths` and block the lane if the report claims out-of-scope edits.
 - when `Reviewer QA` or `Product Owner` final reports include findings, `wrkflw:team-sync` should write them into `review-log.md` automatically; when they report no serious findings, it should record explicit signoff evidence.
+- when any role final report includes `Verdict`, `Missing requirements`, `Incorrect assumptions`, `Risks`, `Questions`, `Suggested changes`, `Evidence`, or `Red-team notes`, `wrkflw:team-sync` should write an independent review entry into `role-reviews.md`.
+- when any role final report includes `Conflict entries`, `wrkflw:team-sync` should append them to `conflicts.md` and keep blocking or high-severity conflicts visible in workflow state.
+- when any role final report includes `Assumption updates` or `Incorrect assumptions`, `wrkflw:team-sync` should append them to `assumptions.md` so later roles can validate or correct them.
 - after the dispatch packets are generated, use Codex delegated agents to enact the team model:
   - `Product Owner`: use a `default` agent for scope/acceptance challenge
   - `Tech Lead`: use a `default` agent for decomposition/integration guidance
@@ -251,7 +314,7 @@ Behavior expectations:
 - do not spawn implementer lanes in parallel unless ownership is clearly disjoint in `agent-assignments.md`.
 - `wrkflw:team-run` should hard-block when parallel implementer lanes are enabled but their `Allowed Write Paths` are missing or overlap.
 - prefer spawning Product Owner and Tech Lead in parallel with implementer work only when their tasks are not blocking the next step.
-- after delegated work returns, use `wrkflw:team-sync` for role and handoff status, use `wrkflw:challenge` / `wrkflw:review-sync` for review evidence, then use the normal `wrkflw` commands to advance or block the workflow.
+- after delegated work returns, use `wrkflw:team-sync` for role verdicts, handoff status, conflicts, assumptions, and findings; use `wrkflw:challenge` / `wrkflw:review-sync` for additional review evidence; then use the normal `wrkflw` commands to advance or block the workflow.
 - workflow commands should run transactionally and preserve a journal under `.workflow/_transactions/` so failed workflow/OpenSpec updates can be rolled back cleanly.
 - For `wrkflw:proceed-only` and `wrkflw:defer`, challenge the request if the selected items conflict with declared dependencies in the workflow artifacts. Do not silently accept a scope restriction that omits required dependencies.
 - `wrkflw:openspec-sync` should bridge the current active story from `.workflow/...` into a real OpenSpec change when OpenSpec is available.
