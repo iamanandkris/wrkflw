@@ -154,7 +154,7 @@ def main() -> int:
     )
     write_if_missing(
         wf / "state.md",
-        "# State\n\n- Current stage:\n- Human gate status:\n- Rework target:\n- Rejection reason:\n- Approval note:\n- Active items:\n- Deferred items:\n- Item note:\n- Challenge note:\n- Next action:\n",
+        "# State\n\n- Current stage:\n- Human gate status:\n- Blocked reason:\n- Rework target:\n- Rejection reason:\n- Approval note:\n- Active items:\n- Deferred items:\n- Item note:\n- Challenge note:\n- Next action:\n",
     )
     write_if_missing(
         wf / "decisions.md",

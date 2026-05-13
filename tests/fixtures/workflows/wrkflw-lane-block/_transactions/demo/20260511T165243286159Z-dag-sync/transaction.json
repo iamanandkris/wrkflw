@@ -1,0 +1,7 @@
+{
+  "workflow_slug": "demo",
+  "command": "dag-sync",
+  "started_at": "2026-05-11T16:52:43Z",
+  "status": "committed",
+  "completed_at": "2026-05-11T16:52:43Z"
+}

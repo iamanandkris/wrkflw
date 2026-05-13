@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
+
+from workflow_debt import debt_for_node_from_payload, format_debt_summary, has_blocking_debt
+from workflow_execution_paths import enrich_node_with_execution_path
+from workflow_memory import memory_bullets, memory_for_story
 
 
 def read_text(path: Path) -> str:
@@ -232,6 +237,41 @@ def risks_for_capability(name: str) -> list[str]:
     return mapping.get(name, ["Keep the slice small enough to stay independently reviewable."])
 
 
+def parse_dag(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(read_text(path))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def dag_node(payload: dict[str, object], node_id: str) -> dict[str, object]:
+    nodes = payload.get("nodes", [])
+    if not isinstance(nodes, list):
+        return {}
+    for node in nodes:
+        if isinstance(node, dict) and node.get("id") == node_id:
+            return enrich_node_with_execution_path(node)
+    return {}
+
+
+def debt_lines(records: list[dict[str, object]]) -> list[str]:
+    lines: list[str] = []
+    for record in records:
+        relation = str(record.get("relation") or "direct")
+        severity = str(record.get("severity") or "medium")
+        debt_type = str(record.get("debt_type") or "technical debt")
+        source = str(record.get("source_story") or "-")
+        summary = str(record.get("summary") or "").strip()
+        text = f"{severity} {relation} {debt_type} from {source}"
+        if summary:
+            text += f": {summary}"
+        lines.append(bullet(text))
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an enriched story artifact for the active workflow story.")
     parser.add_argument("--slug", required=True)
@@ -261,10 +301,23 @@ def main() -> int:
     acceptance = dedup(acceptance)
     tests = dedup(tests)
     risks = dedup(risks)
+    dag = parse_dag(wf / "dag.json")
+    node_id = f"story-{num}"
+    node = dag_node(dag, node_id)
+    planner_metadata = node.get("planner_metadata", {}) if node else {}
+    planner_metadata = planner_metadata if isinstance(planner_metadata, dict) else {}
+    execution_path = node.get("execution_path", {}) if node else {}
+    execution_path = execution_path if isinstance(execution_path, dict) else {}
+    debt = debt_for_node_from_payload(dag, node_id)
+    memory = memory_for_story(root, args.slug, active_story)
+    if has_blocking_debt(debt):
+        risks.append("Open high/critical technical debt applies to this story; resolve or explicitly accept it before release planning.")
 
     acceptance_lines = [bullet(item) for item in acceptance] or ["- Define the acceptance criteria for this story."]
     test_lines = [bullet(item) for item in tests] or ["- Define the test expectations for this story."]
     risk_lines = [bullet(item) for item in risks] or ["- Keep the slice small enough to stay independently reviewable."]
+    debt_section_lines = debt_lines(debt) or ["- No open or accepted technical debt currently applies to this story."]
+    memory_section_lines = [bullet(item) for item in memory_bullets(memory)] or ["- No shared learning memory currently applies to this story."]
 
     lines = [
         f"# {active_story}",
@@ -289,6 +342,28 @@ def main() -> int:
         "",
         "## Risks",
         *risk_lines,
+        "",
+        "## Technical Debt Context",
+        f"- Summary: {format_debt_summary(debt)}",
+        *debt_section_lines,
+        "",
+        "## Shared Learning Memory",
+        *memory_section_lines,
+        "",
+        "## Planner Metadata",
+        f"- Estimated scope: {planner_metadata.get('estimated_scope', '-') or '-'}",
+        f"- Touches interfaces: {'yes' if planner_metadata.get('touches_interfaces') else 'no'}",
+        f"- Needs new tests: {'yes' if planner_metadata.get('needs_new_tests') else 'no'}",
+        f"- Needs deeper QA: {'yes' if planner_metadata.get('needs_deeper_qa') else 'no'}",
+        f"- Testing guidance: {planner_metadata.get('testing_guidance', '-') or '-'}",
+        f"- Review focus: {planner_metadata.get('review_focus', '-') or '-'}",
+        f"- Risk rationale: {planner_metadata.get('risk_rationale', '-') or '-'}",
+        "",
+        "## Execution Path",
+        f"- Path: {execution_path.get('path', '-') or '-'}",
+        f"- Required roles: {', '.join(str(item) for item in execution_path.get('required_roles', []) or []) or '-'}",
+        f"- Review flow: {execution_path.get('review_flow', '-') or '-'}",
+        f"- Retry policy: {execution_path.get('retry_policy', '-') or '-'}",
         "",
     ]
     (wf / f"story-{num}.md").write_text("\n".join(lines), encoding="utf-8")

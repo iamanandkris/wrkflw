@@ -1,0 +1,57 @@
+@startuml
+title Workflow Work Map: demo
+left to right direction
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam packageStyle rectangle
+skinparam ArrowColor #666666
+
+legend right
+|= Color |= Meaning |
+|<#90be6d>| Completed |
+|<#8ecae6>| In progress / active |
+|<#f9c74f>| Deferred / caution |
+|<#d9d9d9>| Future work |
+endlegend
+
+package "Epic" #white {
+  note as epic_note
+  Epic problem: -
+  Epic goal: -
+  Workflow mode: general-delivery
+  Current stage: implementation-planning
+  Team size: 4
+  Parallel slots: 1
+  Runtime mode: file-driven
+  Delegated ready: false
+  Active owner: Tech Lead
+  Current handoff: Tech Lead -> Implementer 1
+  Review entries: 0 (-)
+  Role reviews: 0 (-)
+  Blocked verdicts: 0
+  Conflicts: 0 open-blocking: 0
+  Assumptions: 0
+  Implementation slice 1 [planned] Implementer 1
+  Implementation slice 2 [optional] Implementer 2
+  Implementer 1: declare concrete module/file prefixes before parallel team-run
+  Implementer 2: declare concrete module/file prefixes before parallel team-run
+  Challenge: -
+  Blocked: Parallel dispatch is blocked: Story 1 path `src/api` overlaps Story 2 path `src/api/users`.
+  AutoApprove current gate: off
+  OpenSpec required: true
+  OpenSpec initialized: false
+  end note
+}
+
+package "Stories" #white {
+  rectangle "Story 1\nFirst Parallel Story\n[future]\nCovers: First" as Story_1 #d9d9d9
+  rectangle "Story 2\nSecond Parallel Story\n[future]\nCovers: Second" as Story_2 #d9d9d9
+}
+
+
+package "Story Progress History" #white {
+  rectangle "Story 1\n[future]\ntrail: story-enrichment" as Story_1_trail #d9d9d9
+  rectangle "Story 2\n[future]\ntrail: story-enrichment" as Story_2_trail #d9d9d9
+}
+
+@enduml

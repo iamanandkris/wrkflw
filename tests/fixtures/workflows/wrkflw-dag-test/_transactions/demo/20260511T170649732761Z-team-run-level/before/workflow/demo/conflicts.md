@@ -1,0 +1,14 @@
+# Conflict Register
+
+- Workflow slug: demo
+- Current story: Story 2
+
+## Rules
+
+- Do not hide unresolved disagreement inside prose.
+- Blocking conflicts keep the current gate blocked or pending until the conflict row has a concrete resolution.
+
+## Conflicts
+
+| Date | Story | Raised By | Severity | Conflict | Options | Recommendation | Resolution | Owner |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |

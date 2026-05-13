@@ -1,0 +1,59 @@
+@startuml
+title Workflow Work Map: swe-af-adoption
+left to right direction
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam packageStyle rectangle
+skinparam ArrowColor #666666
+
+legend right
+|= Color |= Meaning |
+|<#90be6d>| Completed |
+|<#8ecae6>| In progress / active |
+|<#f9c74f>| Deferred / caution |
+|<#d9d9d9>| Future work |
+endlegend
+
+package "Epic" #white {
+  note as epic_note
+  Epic problem: SWE-AF has useful execution-runtime ideas that can make `wrkflw` more reliable, resumable, parallel, and evidence-rich.
+  Epic goal: Adopt the SWE-AF features that strengthen `wrkflw` while preserving its artifact-first, human-gated workflow model.
+  Workflow mode: wrkflw-runtime-evolution
+  Current stage: implementation
+  Team size: 4
+  Parallel slots: 1
+  Runtime mode: file-driven
+  Delegated ready: false
+  Active owner: Implementer 1
+  Current handoff: Implementer 1 -> Reviewer QA
+  Review entries: 0 (-)
+  Role reviews: 0 (-)
+  Blocked verdicts: 0
+  Conflicts: 0 open-blocking: 0
+  Assumptions: 0
+  Implementation slice 1 [in-progress] Implementer 1
+  Implementation slice 2 [optional] Implementer 2
+  Implementer 1: declare concrete module/file prefixes before parallel team-run
+  Implementer 2: declare concrete module/file prefixes before parallel team-run
+  Challenge: Reviewer QA found contract/artifact ambiguity and non-local stale install cleanup; both were fixed and revalidated.
+  Blocked: -
+  AutoApprove current gate: off
+  OpenSpec required: true
+  OpenSpec initialized: false
+  end note
+}
+
+package "Stories" #white {
+}
+
+
+package "Stories" #white {
+  rectangle "SWE-AF adoption team hardening fixes\n[active]\n-" as SWE_AF_adoption_team_hardening_fixes #8ecae6
+}
+
+package "Active Story Tasks" #white {
+  rectangle "SWE-AF adoption team hardening fixes\nOpenSpec: -" as SWE_AF_adoption_team_hardening_fixes_tasks #8ecae6
+}
+SWE_AF_adoption_team_hardening_fixes --> SWE_AF_adoption_team_hardening_fixes_tasks
+
+@enduml

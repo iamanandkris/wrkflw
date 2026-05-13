@@ -1,0 +1,206 @@
+{
+  "$id": "wrkflw.agent-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent-node-id": {
+      "type": "string"
+    },
+    "assumption-updates": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "attempt": {
+      "type": "string"
+    },
+    "conflict-entries": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cost-source": {
+      "type": "string"
+    },
+    "cost-usd": {
+      "type": "string"
+    },
+    "debt-entries": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "duration-ms": {
+      "type": "string"
+    },
+    "elapsed-seconds": {
+      "type": "string"
+    },
+    "estimated-cost-usd": {
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "execution-id": {
+      "type": "string"
+    },
+    "files-changed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "follow-up": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "incorrect-assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "input-tokens": {
+      "type": "string"
+    },
+    "invocation-id": {
+      "type": "string"
+    },
+    "memory-entries": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "missing-requirements": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "model": {
+      "type": "string"
+    },
+    "output-tokens": {
+      "type": "string"
+    },
+    "parent-invocation-id": {
+      "type": "string"
+    },
+    "questions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reasoner-id": {
+      "type": "string"
+    },
+    "red-team-notes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "retry-count": {
+      "type": "string"
+    },
+    "risks": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "role": {
+      "enum": [
+        "Implementer 1",
+        "Implementer 2",
+        "Product Owner",
+        "Reviewer QA",
+        "Tech Lead"
+      ]
+    },
+    "run-id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "agent-result-v1"
+    },
+    "status": {
+      "enum": [
+        "blocked",
+        "done",
+        "in-progress",
+        "in-review",
+        "optional",
+        "planned"
+      ]
+    },
+    "suggested-changes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "transport-retry-count": {
+      "type": "string"
+    },
+    "validation-run": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "verdict": {
+      "enum": [
+        "approve",
+        "approve-with-changes",
+        "block",
+        "blocked",
+        "n/a",
+        "none"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "role",
+    "status",
+    "verdict",
+    "summary",
+    "follow-up",
+    "files-changed",
+    "validation-run",
+    "missing-requirements",
+    "incorrect-assumptions",
+    "risks",
+    "questions",
+    "suggested-changes",
+    "evidence",
+    "conflict-entries",
+    "assumption-updates",
+    "red-team-notes",
+    "findings",
+    "debt-entries",
+    "memory-entries"
+  ],
+  "title": "wrkflw delegated agent result",
+  "type": "object"
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "workflow_slug": "demo",
+  "generated_at": "2026-05-11T17:07:17Z",
+  "source": ".workflow/demo/stories.md",
+  "current_stage": "implementation-planning",
+  "human_gate_status": "blocked",
+  "active_items": "",
+  "deferred_items": "",
+  "validation": {
+    "status": "valid",
+    "valid": true,
+    "errors": [],
+    "warnings": []
+  },
+  "lane_dependencies": {
+    "depends_on": [],
+    "blocked_by": [],
+    "satisfied_by": []
+  },
+  "levels": [
+    [
+      "story-1",
+      "story-2"
+    ]
+  ],
+  "nodes": [
+    {
+      "id": "story-1",
+      "story": "Story 1",
+      "title": "First Parallel Story",
+      "label": "Story 1: First Parallel Story",
+      "status": "ready",
+      "level": 1,
+      "depends_on": [],
+      "dependents": [],
+      "blocked_by_stories": [],
+      "blocked_by_lanes": [],
+      "covers": [
+        "First"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [
+        "src/api"
+      ],
+      "source": ".workflow/demo/stories.md"
+    },
+    {
+      "id": "story-2",
+      "story": "Story 2",
+      "title": "Second Parallel Story",
+      "label": "Story 2: Second Parallel Story",
+      "status": "ready",
+      "level": 1,
+      "depends_on": [],
+      "dependents": [],
+      "blocked_by_stories": [],
+      "blocked_by_lanes": [],
+      "covers": [
+        "Second"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [
+        "src/api/users"
+      ],
+      "source": ".workflow/demo/stories.md"
+    }
+  ]
+}

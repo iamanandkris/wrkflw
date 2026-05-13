@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "workflow_slug": "demo",
+  "generated_at": "2026-05-11T16:51:11Z",
+  "source": ".workflow/demo/stories.md",
+  "current_stage": "implementation-planning",
+  "human_gate_status": "blocked",
+  "active_items": "Story 1",
+  "deferred_items": "",
+  "validation": {
+    "status": "invalid",
+    "valid": false,
+    "errors": [
+      "Unknown story dependencies: story-2"
+    ],
+    "warnings": []
+  },
+  "lane_dependencies": {
+    "depends_on": [],
+    "blocked_by": [],
+    "satisfied_by": []
+  },
+  "levels": [],
+  "nodes": [
+    {
+      "id": "story-1",
+      "story": "Story 1",
+      "title": "Invalid Dependency",
+      "label": "Story 1: Invalid Dependency",
+      "status": "blocked",
+      "level": null,
+      "depends_on": [
+        "story-2"
+      ],
+      "dependents": [],
+      "blocked_by_stories": [
+        "story-2"
+      ],
+      "blocked_by_lanes": [],
+      "covers": [
+        "Invalid"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    }
+  ]
+}

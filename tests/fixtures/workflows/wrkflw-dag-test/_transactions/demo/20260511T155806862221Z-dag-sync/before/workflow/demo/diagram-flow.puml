@@ -1,0 +1,82 @@
+@startuml
+title Workflow Flow: demo
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+hide empty description
+[*] --> discuss
+state "discuss\ngoal framing\nactive: Story 2" as discuss #90be6d
+state "capability-review\ncapability gate\nauto: off" as capability_review #90be6d
+state "epic-shaping\nepic review\nauto: off" as epic_shaping #90be6d
+state "story-slicing\n4 stories\nauto: off" as story_slicing #90be6d
+state "story-enrichment\nenriching Story 2\nauto: off" as story_enrichment #90be6d
+state "spec-authoring\nOpenSpec\nauto: off" as spec_authoring #90be6d
+state "implementation-planning\nplan slice\nactive: Story 2" as implementation_planning #8ecae6
+state "implementation\nbuild/test\nactive: Story 2" as implementation #d9d9d9
+state "review\nreview gate\nauto: off" as review #d9d9d9
+state "release-planning\nrelease prep\nauto: off" as release_planning #d9d9d9
+state "done\ncomplete" as done #d9d9d9
+discuss --> capability_review
+capability_review --> epic_shaping
+epic_shaping --> story_slicing
+story_slicing --> story_enrichment
+story_enrichment --> spec_authoring
+spec_authoring --> implementation_planning
+implementation_planning --> implementation
+implementation --> review
+review --> release_planning
+release_planning --> done
+done --> [*]
+note right of implementation_planning
+Gate: approved
+Blocked: -
+AutoApprove: off
+OpenSpec: -
+OpenSpec required: true
+OpenSpec initialized: false
+Team size: 4
+Parallel slots: 1
+Runtime mode: file-driven
+Delegated ready: false
+Role reviews: 0 (-)
+Blocked verdicts: 0
+Conflicts: 0 open-blocking: 0
+Assumptions: 0
+Next: review dag.md/dag.json and use ready levels for implementation planning
+end note
+note right of epic_shaping
+Epic problem: -
+Epic goal: -
+Workflow mode: general-delivery
+end note
+note right of story_slicing
+Story 1 [completed]
+Story 2 [active] -> Story 1
+Story 3 [future] -> Story 1
+Story 4 [deferred] -> Story 2, Story 3
+end note
+note right of implementation
+Planned slice preview
+OpenSpec: -
+Owner: Tech Lead
+Handoff: Tech Lead -> Implementer 1
+Review entries: 0 (-)
+Runtime review roles: -
+Role reviews: 0 (-)
+Open blocking conflicts: -
+Implementation slice 1 [planned] Implementer 1
+Implementation slice 2 [optional] Implementer 2
+Implementer 1: declare concrete module/file prefixes before parallel team-run
+Implementer 2: declare concrete module/file prefixes before parallel team-run
+-
+end note
+state "Story Execution Context" as story_execution_context {
+  state "Story 1 [completed]\nEstablish Runtime Boundary\ndepends: -\ntrail: -\nCreate the runtime module.\nCovers: Contract Runtime Boundary" as story_execution_context_1 #90be6d
+  state "Story 2 [active]\nAdd Approval Policy\ndepends: Story 1\ntrail: story-enrichment -> implementation-planning\nAdd approval-gated behavior.\nCovers: Approval And Decision Governance" as story_execution_context_2 #8ecae6
+  story_execution_context_1 --> story_execution_context_2
+  state "Story 3 [future]\nAdd Audit Trail\ndepends: Story 1\ntrail: -\nPersist audit events.\nCovers: Audit Trail And Timeline Reconstruction" as story_execution_context_3 #d9d9d9
+  story_execution_context_2 --> story_execution_context_3
+  state "Story 4 [deferred]\nDocument Operations\ndepends: Story 2, Story 3\ntrail: -\nWrite operator guidance.\nCovers: Developer Guidance" as story_execution_context_4 #f9c74f
+  story_execution_context_3 --> story_execution_context_4
+}
+story_slicing --> story_execution_context
+@enduml

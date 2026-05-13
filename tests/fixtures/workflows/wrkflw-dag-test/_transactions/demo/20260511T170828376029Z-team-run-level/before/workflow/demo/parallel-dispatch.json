@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "workflow_slug": "demo",
+  "generated_at": "2026-05-11T17:06:50Z",
+  "status": "ready",
+  "level": 2,
+  "source": ".workflow/demo/dag.json",
+  "output_dir": ".workflow/demo/parallel-dispatch",
+  "blockers": [],
+  "nodes": [
+    {
+      "id": "story-2",
+      "story": "Story 2",
+      "label": "Story 2: Add Approval Policy",
+      "level": 2,
+      "allowed_paths": [
+        "src/approval",
+        "tests/approval"
+      ],
+      "packet": ".workflow/demo/parallel-dispatch/story-2/implementer.md"
+    },
+    {
+      "id": "story-3",
+      "story": "Story 3",
+      "label": "Story 3: Add Audit Trail",
+      "level": 2,
+      "allowed_paths": [
+        "src/audit",
+        "tests/audit"
+      ],
+      "packet": ".workflow/demo/parallel-dispatch/story-3/implementer.md"
+    }
+  ]
+}

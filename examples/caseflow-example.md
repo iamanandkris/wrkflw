@@ -49,9 +49,22 @@ Starting from one broad design document, `wrkflw` created:
   - `agent-assignments.md`
   - `execution-board.md`
   - `review-log.md`
+  - `role-reviews.md`
+  - `conflicts.md`
+  - `assumptions.md`
   - `team-minutes.md`
   - `runtime-contract.md`
   - `dependencies.md`
+  - `dag.json`, `dag.md`, and `dag-validation.md`
+  - `execution-path.json` and `execution-path.md`
+  - `feedback-synthesis.json` and `feedback-synthesis.md`
+  - `issue-advisor.json`, `issue-advisor.md`, and `records/adaptations.jsonl`
+  - `replan.json`, `replan.md`, and `records/replans.jsonl`
+  - `verify-fix.json`, `verify-fix.md`, and `records/verify-fix.jsonl`
+  - `ci-feedback.json`, `ci-feedback.md`, and `records/ci-feedback.jsonl`
+  - `merge-gate.json`, `merge-apply.json`, and integration gate artifacts
+  - `memory.md`, `debt.md`, and accounting records
+  - `schemas/agent-result.schema.json` and `agent-result-schema.md`
   - `agent-results/`
   - `agent-sync-ledger.md`
 

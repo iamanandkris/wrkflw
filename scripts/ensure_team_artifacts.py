@@ -2,13 +2,48 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+
+from workflow_agent_result_schema import ensure_agent_result_schema_artifacts
+from workflow_accounting import ensure_accounting_artifacts
+from workflow_ci_feedback import ensure_ci_feedback_artifact
+from workflow_debt import ensure_debt_artifacts
+from workflow_integration_gate import ensure_integration_gate_artifacts
+from workflow_issue_advisor import ensure_issue_advisor_artifact
+from workflow_memory import ensure_memory_artifacts
+from workflow_replanner import ensure_replan_artifact
+from workflow_runtime_contract import (
+    GENERATED_SHARED_ARTIFACTS,
+    REQUIRED_SHARED_INPUTS,
+    REQUIRED_SHARED_OUTPUTS,
+    format_shared_items,
+)
+from workflow_verify_fix import ensure_verify_fix_artifact
 
 
 def write_if_missing(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text(content, encoding="utf-8")
+
+
+def write_json_if_missing(path: Path, payload: dict[str, object]) -> None:
+    write_if_missing(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def touch_if_missing(path: Path) -> None:
+    write_if_missing(path, "")
+
+
+def not_recorded_payload(slug: str, artifact: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "workflow_slug": slug,
+        "artifact": artifact,
+        "status": "not_recorded",
+        "summary": "This workflow artifact has not been recorded yet.",
+    }
 
 
 def default_team_config() -> str:
@@ -267,6 +302,59 @@ def default_agent_sync_ledger() -> str:
 """
 
 
+def default_feedback_synthesis(slug: str) -> str:
+    return f"""# Feedback Synthesis
+
+- Workflow slug: {slug}
+- Recommendation:
+- Status:
+- Summary:
+
+## Reasons
+- none
+
+## Blockers
+- none
+
+## Warnings
+- none
+"""
+
+
+def default_issue_advisor(slug: str) -> str:
+    return f"""# Issue Advisor
+
+- Workflow slug: {slug}
+- Action:
+- Summary:
+
+## Rationale
+- none
+
+## Evidence
+- none
+
+## Next Steps
+- none
+"""
+
+
+def default_replan(slug: str) -> str:
+    return f"""# Replan
+
+- Workflow slug: {slug}
+- Status:
+- Plan type:
+- Summary:
+
+## Proposed Changes
+- none
+
+## Blockers
+- none
+"""
+
+
 def default_runtime_contract(slug: str) -> str:
     return f"""# Runtime Contract
 
@@ -282,8 +370,16 @@ def default_runtime_contract(slug: str) -> str:
 - Active story:
 - Active owner:
 - Current handoff:
-- Required shared inputs: design-slice.md, state.md, stories.md, execution-board.md, role-reviews.md, conflicts.md, assumptions.md, review-log.md, links.md, workflow-contract.md
-- Required shared outputs: code/tests/docs in assigned scope, role-reviews.md verdicts, conflicts.md entries, assumptions.md updates, review-log.md evidence, execution-board.md notes, team-minutes.md updates
+- Recorded review roles:
+- Recorded role review roles:
+- Open blocking conflicts:
+- Assumption entries:
+- Blocking technical debt:
+- Shared learning memory:
+- Invocation accounting:
+- Required shared inputs: {format_shared_items(REQUIRED_SHARED_INPUTS)}
+- Generated shared artifacts: {format_shared_items(GENERATED_SHARED_ARTIFACTS)}
+- Required shared outputs: {format_shared_items(REQUIRED_SHARED_OUTPUTS)}
 
 ## Team Runtime Rules
 
@@ -295,6 +391,47 @@ def default_runtime_contract(slug: str) -> str:
 - Team conversations, challenge outcomes, and handoff notes should be summarized in `team-minutes.md`.
 - This contract prepares the workflow for future delegated multi-agent execution without requiring it today.
 """
+
+
+def ensure_on_demand_artifacts(root: Path, slug: str) -> None:
+    wf = root / ".workflow" / slug
+    records = wf / "records"
+    for relative in [
+        "records/memory.jsonl",
+        "records/debt.jsonl",
+        "records/invocations.jsonl",
+        "records/adaptations.jsonl",
+        "records/replans.jsonl",
+        "records/verify-fix.jsonl",
+        "records/ci-feedback.jsonl",
+        "records/integration-gate-runs.jsonl",
+        "records/agent-result-validation.jsonl",
+    ]:
+        touch_if_missing(wf / relative)
+    for relative in ["agent-results", "dispatch", "parallel-dispatch", "ci-runs", "integration-runs", "replans"]:
+        (wf / relative).mkdir(parents=True, exist_ok=True)
+    (records).mkdir(parents=True, exist_ok=True)
+    write_json_if_missing(wf / "feedback-synthesis.json", not_recorded_payload(slug, "feedback-synthesis"))
+    write_json_if_missing(wf / "issue-advisor.json", not_recorded_payload(slug, "issue-advisor"))
+    write_json_if_missing(wf / "replan.json", not_recorded_payload(slug, "replan"))
+    write_json_if_missing(wf / "verify-fix.json", not_recorded_payload(slug, "verify-fix"))
+    write_json_if_missing(wf / "ci-feedback.json", not_recorded_payload(slug, "ci-feedback"))
+    write_json_if_missing(wf / "integration-test-gate.json", not_recorded_payload(slug, "integration-test-gate"))
+    write_if_missing(
+        wf / "integration-test-gate.md",
+        f"""# Integration Test Gate
+
+- Workflow slug: {slug}
+- Status: not_recorded
+- Summary: This workflow artifact has not been recorded yet.
+
+## Blockers
+- none
+
+## Warnings
+- none
+""",
+    )
 
 
 def default_dependencies(slug: str) -> str:
@@ -328,11 +465,24 @@ def main() -> int:
     write_if_missing(wf / "role-reviews.md", default_role_reviews(args.slug))
     write_if_missing(wf / "conflicts.md", default_conflicts(args.slug))
     write_if_missing(wf / "assumptions.md", default_assumptions(args.slug))
+    write_if_missing(wf / "feedback-synthesis.md", default_feedback_synthesis(args.slug))
+    write_if_missing(wf / "issue-advisor.md", default_issue_advisor(args.slug))
+    write_if_missing(wf / "replan.md", default_replan(args.slug))
     write_if_missing(wf / "team-minutes.md", default_team_minutes(args.slug))
     write_if_missing(wf / "runtime-contract.md", default_runtime_contract(args.slug))
     write_if_missing(wf / "dependencies.md", default_dependencies(args.slug))
     write_if_missing(wf / "agent-sync-ledger.md", default_agent_sync_ledger())
     (wf / "agent-results").mkdir(parents=True, exist_ok=True)
+    ensure_memory_artifacts(root, args.slug)
+    ensure_accounting_artifacts(root, args.slug)
+    ensure_debt_artifacts(root, args.slug)
+    ensure_issue_advisor_artifact(root, args.slug)
+    ensure_replan_artifact(root, args.slug)
+    ensure_verify_fix_artifact(root, args.slug)
+    ensure_ci_feedback_artifact(root, args.slug)
+    ensure_agent_result_schema_artifacts(root, args.slug)
+    ensure_integration_gate_artifacts(root, args.slug)
+    ensure_on_demand_artifacts(root, args.slug)
     return 0
 
 

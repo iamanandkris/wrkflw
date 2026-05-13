@@ -1,0 +1,21 @@
+{
+  "by_command": {},
+  "by_kind": {},
+  "by_status": {},
+  "by_story": {},
+  "generated_at": "",
+  "last_recorded_at": "",
+  "schema_version": 1,
+  "totals": {
+    "avoided_rework_count": 0,
+    "elapsed_seconds": 0.0,
+    "estimated_cost_usd": 0.0,
+    "input_tokens": 0,
+    "invocation_count": 0,
+    "known_cost_record_count": 0,
+    "output_tokens": 0,
+    "retry_count": 0,
+    "unknown_cost_record_count": 0
+  },
+  "workflow_slug": "swe-af-adoption"
+}

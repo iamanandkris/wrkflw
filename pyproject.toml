@@ -1,0 +1,14 @@
+[project]
+name = "wrkflw"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+cache_dir = "/tmp/wrkflw-pytest-cache"
+testpaths = ["tests"]

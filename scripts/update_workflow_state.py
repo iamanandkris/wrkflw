@@ -9,6 +9,7 @@ from subprocess import run
 STATE_FIELDS = [
     "Current stage",
     "Human gate status",
+    "Blocked reason",
     "Rework target",
     "Rejection reason",
     "Approval note",
@@ -47,7 +48,8 @@ def main() -> int:
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
     parser.add_argument("--stage", help="Current workflow stage")
-    parser.add_argument("--gate-status", choices=["pending", "approved", "rejected"], help="Human gate status")
+    parser.add_argument("--gate-status", choices=["pending", "approved", "blocked", "rejected"], help="Human gate status")
+    parser.add_argument("--blocked-reason", help="Why the workflow gate is blocked")
     parser.add_argument("--rework-target", help="Stage to return to after rejection")
     parser.add_argument("--rejection-reason", help="Why the gate was rejected")
     parser.add_argument("--approval-note", help="Why the gate was approved")
@@ -68,6 +70,8 @@ def main() -> int:
         state["Current stage"] = args.stage
     if args.gate_status is not None:
         state["Human gate status"] = args.gate_status
+    if args.blocked_reason is not None:
+        state["Blocked reason"] = args.blocked_reason
     if args.rework_target is not None:
         state["Rework target"] = args.rework_target
     if args.rejection_reason is not None:

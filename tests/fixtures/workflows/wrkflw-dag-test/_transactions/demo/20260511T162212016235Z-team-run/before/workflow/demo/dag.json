@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "workflow_slug": "demo",
+  "generated_at": "2026-05-11T15:58:07Z",
+  "source": ".workflow/demo/stories.md",
+  "current_stage": "implementation-planning",
+  "human_gate_status": "approved",
+  "active_items": "Story 2",
+  "deferred_items": "Story 4",
+  "levels": [
+    [
+      "story-1"
+    ],
+    [
+      "story-2",
+      "story-3"
+    ],
+    [
+      "story-4"
+    ]
+  ],
+  "nodes": [
+    {
+      "id": "story-1",
+      "story": "Story 1",
+      "title": "Establish Runtime Boundary",
+      "label": "Story 1: Establish Runtime Boundary",
+      "status": "completed",
+      "level": 1,
+      "depends_on": [],
+      "dependents": [
+        "story-2",
+        "story-3"
+      ],
+      "covers": [
+        "Contract Runtime Boundary"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    },
+    {
+      "id": "story-2",
+      "story": "Story 2",
+      "title": "Add Approval Policy",
+      "label": "Story 2: Add Approval Policy",
+      "status": "active",
+      "level": 2,
+      "depends_on": [
+        "story-1"
+      ],
+      "dependents": [
+        "story-4"
+      ],
+      "covers": [
+        "Approval And Decision Governance"
+      ],
+      "risk": "high",
+      "needs_deeper_qa": true,
+      "review_focus": "deep QA and red-team review",
+      "acceptance": [
+        "Approval policy rejects invalid transitions."
+      ],
+      "validation": [
+        "Add a regression test for approval-blocked transitions."
+      ],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    },
+    {
+      "id": "story-3",
+      "story": "Story 3",
+      "title": "Add Audit Trail",
+      "label": "Story 3: Add Audit Trail",
+      "status": "ready",
+      "level": 2,
+      "depends_on": [
+        "story-1"
+      ],
+      "dependents": [
+        "story-4"
+      ],
+      "covers": [
+        "Audit Trail And Timeline Reconstruction"
+      ],
+      "risk": "high",
+      "needs_deeper_qa": true,
+      "review_focus": "deep QA and red-team review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    },
+    {
+      "id": "story-4",
+      "story": "Story 4",
+      "title": "Document Operations",
+      "label": "Story 4: Document Operations",
+      "status": "deferred",
+      "level": 3,
+      "depends_on": [
+        "story-2",
+        "story-3"
+      ],
+      "dependents": [],
+      "covers": [
+        "Developer Guidance"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    }
+  ]
+}

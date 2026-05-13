@@ -1,0 +1,75 @@
+@startuml
+title Workflow Work Map: demo
+left to right direction
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam packageStyle rectangle
+skinparam ArrowColor #666666
+
+legend right
+|= Color |= Meaning |
+|<#90be6d>| Completed |
+|<#8ecae6>| In progress / active |
+|<#f9c74f>| Deferred / caution |
+|<#d9d9d9>| Future work |
+endlegend
+
+package "Epic" #white {
+  note as epic_note
+  Epic problem: -
+  Epic goal: -
+  Workflow mode: general-delivery
+  Current stage: implementation-planning
+  Team size: 4
+  Parallel slots: 1
+  Runtime mode: parallel-dag-level-team
+  Delegated ready: false
+  Active owner: Tech Lead
+  Current handoff: Tech Lead -> Implementer 1
+  Review entries: 0 (-)
+  Role reviews: 0 (-)
+  Blocked verdicts: 0
+  Conflicts: 0 open-blocking: 0
+  Assumptions: 0
+  Implementation slice 1 [planned] Implementer 1
+  Implementation slice 2 [optional] Implementer 2
+  Implementer 1: declare concrete module/file prefixes before parallel team-run
+  Implementer 2: declare concrete module/file prefixes before parallel team-run
+  Challenge: -
+  Blocked: -
+  AutoApprove current gate: off
+  OpenSpec required: true
+  OpenSpec initialized: false
+  end note
+}
+
+package "Stories" #white {
+  rectangle "Story 1\nEstablish Runtime Boundary\n[completed]\nCreate the runtime module.\nCovers: Contract Runtime Boundary" as Story_1 #90be6d
+  rectangle "Story 2\nAdd Approval Policy\n[active]\nAdd approval-gated behavior.\nCovers: Approval And Decision Governance" as Story_2 #8ecae6
+  rectangle "Story 3\nAdd Audit Trail\n[future]\nPersist audit events.\nCovers: Audit Trail And Timeline Reconstruction" as Story_3 #d9d9d9
+  rectangle "Story 4\nDocument Operations\n[deferred]\nWrite operator guidance.\nCovers: Developer Guidance" as Story_4 #f9c74f
+}
+
+Story_1 --> Story_2
+Story_1 --> Story_3
+Story_2 --> Story_4
+Story_3 --> Story_4
+
+package "Completed Story Context" #white {
+  rectangle "Story 1\nCompleted\nCreate the runtime module.\nCovers: Contract Runtime Boundary" as Story_1_completed #90be6d
+  Story_1 --> Story_1_completed
+}
+
+package "Story Progress History" #white {
+  rectangle "Story 1\n[completed]\ntrail: -" as Story_1_trail #90be6d
+  rectangle "Story 2\n[active]\ntrail: story-enrichment -> implementation-planning" as Story_2_trail #8ecae6
+  rectangle "Story 3\n[future]\ntrail: story-enrichment" as Story_3_trail #d9d9d9
+  rectangle "Story 4\n[deferred]\ntrail: -" as Story_4_trail #f9c74f
+}
+
+package "Active Story Tasks" #white {
+  rectangle "Story 2\nOpenSpec: -" as Story_2_tasks #8ecae6
+}
+Story_2 --> Story_2_tasks
+
+@enduml

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "workflow_slug": "demo",
+  "generated_at": "2026-05-11T16:50:34Z",
+  "source": ".workflow/demo/stories.md",
+  "current_stage": "implementation-planning",
+  "human_gate_status": "blocked",
+  "active_items": "Story 1",
+  "deferred_items": "",
+  "validation": {
+    "status": "blocked",
+    "valid": true,
+    "errors": [],
+    "warnings": [
+      "Lane is blocked by incomplete workflow dependencies: prerequisite-lane"
+    ]
+  },
+  "lane_dependencies": {
+    "depends_on": [
+      "prerequisite-lane"
+    ],
+    "blocked_by": [
+      "prerequisite-lane"
+    ],
+    "satisfied_by": []
+  },
+  "levels": [
+    [
+      "story-1"
+    ]
+  ],
+  "nodes": [
+    {
+      "id": "story-1",
+      "story": "Story 1",
+      "title": "Implement Current Lane",
+      "label": "Story 1: Implement Current Lane",
+      "status": "blocked",
+      "level": 1,
+      "depends_on": [],
+      "dependents": [],
+      "blocked_by_stories": [],
+      "blocked_by_lanes": [
+        "prerequisite-lane"
+      ],
+      "covers": [
+        "Current Lane"
+      ],
+      "risk": "normal",
+      "needs_deeper_qa": false,
+      "review_focus": "standard acceptance and regression review",
+      "acceptance": [],
+      "validation": [],
+      "allowed_paths": [],
+      "source": ".workflow/demo/stories.md"
+    }
+  ]
+}
