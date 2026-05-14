@@ -6,6 +6,10 @@ import re
 from pathlib import Path
 
 
+GENERATED_MARKER = "<!-- generated-by: wrkflw capability inventory -->"
+PLACEHOLDER_RATIONALE = "No capability inventory has been generated yet."
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
@@ -23,6 +27,11 @@ def first_line_starting(text: str, prefix: str) -> str:
 
 def detect_mode(text: str) -> tuple[str, str]:
     lowered = text.lower()
+    if is_sql_server_mcp(text):
+        return (
+            "sql-server-mcp",
+            "The seed language describes a read-oriented MCP server that exposes SQL Server capabilities to human or agent clients.",
+        )
     if any(
         term in lowered
         for term in [
@@ -134,6 +143,66 @@ CAPABILITIES = [
 ]
 
 
+SQL_SERVER_MCP_CAPABILITIES = [
+    {
+        "name": "MCP Runtime And Stdio Transport",
+        "keywords": ["mcp", "model context protocol", "stdio", "server", "tool"],
+        "modes": {"sql-server-mcp": "required"},
+        "why": "A usable v1 needs a working MCP process, transport lifecycle, tool registration, and predictable request/response behavior before database features can be exposed.",
+        "stories": ["Create the TypeScript MCP stdio server skeleton", "Register the initial SQL Server tools with stable names and schemas"],
+    },
+    {
+        "name": "SQL Server Connection Configuration",
+        "keywords": ["sql server", "mssql", "connection", "connection string", "authentication", "encrypt", "trustservercertificate"],
+        "modes": {"sql-server-mcp": "required"},
+        "why": "The server must connect to SQL Server without hard-coding credentials and must surface configuration failures clearly for local and agentic setups.",
+        "stories": ["Load SQL Server connection settings from environment or config", "Validate connection configuration before tools attempt database work"],
+    },
+    {
+        "name": "Read-Only Query Execution",
+        "keywords": ["read-only", "readonly", "select", "query", "execute", "row limit", "timeout"],
+        "modes": {"sql-server-mcp": "required"},
+        "why": "The approved v1 scope is read-only, so query execution needs an intentionally narrow surface that can answer questions without mutating data.",
+        "stories": ["Execute parameterized read-only SELECT queries", "Apply timeout and row-limit controls to result-producing queries"],
+    },
+    {
+        "name": "Schema Discovery And Introspection",
+        "keywords": ["schema", "table", "column", "catalog", "metadata", "introspection", "describe"],
+        "modes": {"sql-server-mcp": "required"},
+        "why": "Agents need schema context before they can ask useful questions or construct safe SQL.",
+        "stories": ["Expose database, schema, table, and column discovery tools", "Return compact metadata that agents can consume without excessive token cost"],
+    },
+    {
+        "name": "Safety Guardrails And Policy Enforcement",
+        "keywords": ["write", "admin", "ddl", "dml", "delete", "update", "insert", "drop", "guardrail", "policy"],
+        "modes": {"sql-server-mcp": "required"},
+        "why": "A database-facing MCP server needs explicit enforcement that v1 cannot perform writes or administrative operations.",
+        "stories": ["Reject mutating or administrative SQL before execution", "Document the supported read-only command envelope and known exclusions"],
+    },
+    {
+        "name": "Result Shaping And Error Reporting",
+        "keywords": ["result", "rows", "json", "error", "diagnostic", "message", "format"],
+        "modes": {"sql-server-mcp": "recommended"},
+        "why": "Human and machine clients both need predictable result envelopes and errors that are specific enough to recover from.",
+        "stories": ["Return stable JSON result envelopes for rows and metadata", "Map SQL Server and validation failures into clear MCP errors"],
+    },
+    {
+        "name": "Observability And Operational Limits",
+        "keywords": ["logging", "telemetry", "pool", "cancellation", "limit", "timeout", "observability"],
+        "modes": {"sql-server-mcp": "recommended"},
+        "why": "Database tools can create expensive work quickly, so v1 should expose enough logging and limits to diagnose failures without leaking sensitive data.",
+        "stories": ["Add safe operational logging around tool calls and failures", "Centralize timeout, row-limit, and connection-pool defaults"],
+    },
+    {
+        "name": "Agent Usability Documentation",
+        "keywords": ["agent", "human", "docs", "readme", "examples", "client", "setup"],
+        "modes": {"sql-server-mcp": "recommended"},
+        "why": "The server is meant for agentic setups, so the first release needs clear install, configuration, and client usage guidance.",
+        "stories": ["Document stdio client configuration and required environment variables", "Provide example prompts and tool usage patterns for safe database exploration"],
+    },
+]
+
+
 SERVICE_CAPABILITIES = [
     {
         "name": "Contract Runtime Boundary",
@@ -209,6 +278,41 @@ SERVICE_CAPABILITY_WORKFLOW_HINTS = {
     "API And Event Surface": "admin-template-design-experience",
     "Schema And UI Metadata": "admin-template-design-experience",
 }
+
+
+GENERIC_CAPABILITY_NAMES = {str(capability["name"]) for capability in CAPABILITIES}
+
+
+def is_sql_server_mcp(text: str) -> bool:
+    lowered = text.lower()
+    mcp_signals = ["mcp", "model context protocol"]
+    sql_server_signals = ["sql server", "mssql", "ms sql", "t-sql", "tsql", "database"]
+    return any(signal in lowered for signal in mcp_signals) and any(
+        signal in lowered for signal in sql_server_signals
+    )
+
+
+def has_generic_inventory_categories(text: str) -> bool:
+    headings = set(re.findall(r"^###\s+(.+?)\s*$", text, flags=re.MULTILINE))
+    if len(headings & GENERIC_CAPABILITY_NAMES) >= 2:
+        return True
+    lowered = text.lower()
+    return "core shape of the contract model" in lowered or "validation annotations" in lowered
+
+
+def should_preserve_existing_inventory(path: Path, seed_text: str) -> bool:
+    if not path.exists():
+        return False
+    existing = path.read_text(encoding="utf-8")
+    if not existing.strip():
+        return False
+    if GENERATED_MARKER in existing:
+        return False
+    if PLACEHOLDER_RATIONALE in existing:
+        return False
+    if is_sql_server_mcp(seed_text) and has_generic_inventory_categories(existing):
+        return False
+    return True
 
 
 def capability_status(capability: dict[str, object], mode: str, text: str) -> tuple[str, str]:
@@ -294,6 +398,8 @@ def format_inventory(mode: str, rationale: str, text: str, workflow_slug: str, w
     lines = [
         "# Capability Inventory",
         "",
+        GENERATED_MARKER,
+        "",
         "## Workflow Mode",
         "",
         f"- Mode: {mode}",
@@ -311,7 +417,9 @@ def format_inventory(mode: str, rationale: str, text: str, workflow_slug: str, w
     ]
 
     capabilities = CAPABILITIES
-    if mode == "product-service" and is_caseflow_service(text):
+    if mode == "sql-server-mcp":
+        capabilities = SQL_SERVER_MCP_CAPABILITIES
+    elif mode == "product-service" and is_caseflow_service(text):
         capabilities = SERVICE_CAPABILITIES
 
     for capability in capabilities:
@@ -341,6 +449,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a workflow capability inventory from context and design seed.")
     parser.add_argument("--slug", required=True)
     parser.add_argument("--root", default=".")
+    parser.add_argument("--force", action="store_true", help="Overwrite an existing human-curated capability inventory.")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
@@ -351,10 +460,13 @@ def main() -> int:
     design_slice = read_text(wf / "design-slice.md")
     design_seed = read_text(wf / "design-seed.md")
     combined = "\n".join(part for part in [context, design_slice, design_seed] if part.strip())
+    output_path = wf / "capabilities.md"
+    if not args.force and should_preserve_existing_inventory(output_path, combined):
+        return 0
     mode, rationale = detect_mode(combined)
     workflow_statuses = parse_initiative_index(root / ".workflow" / "initiative-index.md")
     inventory = format_inventory(mode, rationale, combined, args.slug, workflow_statuses)
-    (wf / "capabilities.md").write_text(inventory, encoding="utf-8")
+    output_path.write_text(inventory, encoding="utf-8")
     return 0
 
 

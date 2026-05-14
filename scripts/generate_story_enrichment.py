@@ -131,6 +131,37 @@ def acceptance_for_capability(name: str, capability: dict[str, object]) -> list[
 
 def tests_for_capability(name: str) -> list[str]:
     mapping = {
+        "MCP Runtime And Stdio Transport": [
+            "Add or update a test that starts the MCP server over stdio and verifies the initialized tool list.",
+            "Assert the initial SQL Server tool schemas stay stable for MCP clients.",
+        ],
+        "SQL Server Connection Configuration": [
+            "Add or update a test that validates required SQL Server connection settings without opening a real connection.",
+            "Assert configuration errors are reported before database tools run.",
+        ],
+        "Read-Only Query Execution": [
+            "Add or update a test that allows a representative SELECT query and rejects an unsupported non-read query.",
+            "Assert row-limit or timeout controls are applied to query execution.",
+        ],
+        "Schema Discovery And Introspection": [
+            "Add or update a test for table or column discovery output using a controlled SQL Server metadata fixture or mock.",
+            "Assert introspection responses are compact enough for agent consumption.",
+        ],
+        "Safety Guardrails And Policy Enforcement": [
+            "Add or update a test that rejects INSERT, UPDATE, DELETE, DDL, or administrative SQL before execution.",
+            "Assert the rejection is returned as a clear MCP/tool error.",
+        ],
+        "Result Shaping And Error Reporting": [
+            "Add or update a test that verifies the stable JSON envelope for rows, columns, and execution metadata.",
+            "Assert SQL Server or validation failures map to clear MCP errors.",
+        ],
+        "Observability And Operational Limits": [
+            "Add or update a test or focused assertion for timeout, row-limit, cancellation, or pool configuration defaults.",
+            "Ensure logs avoid credentials and raw sensitive values.",
+        ],
+        "Agent Usability Documentation": [
+            "Update developer-facing documentation for stdio client setup, environment variables, and safe read-only examples.",
+        ],
         "Contract Runtime Boundary": [
             "Add or update a test that proves the Java-facing contract service can validate a representative payload through the Concentric runtime boundary.",
             "Assert that Scala-backed validation details are translated into a stable Java/platform error shape.",
@@ -201,6 +232,30 @@ def tests_for_capability(name: str) -> list[str]:
 
 def risks_for_capability(name: str) -> list[str]:
     mapping = {
+        "MCP Runtime And Stdio Transport": [
+            "Keep the first slice to the runtime skeleton and tool contract; defer HTTP transport and write/admin support.",
+        ],
+        "SQL Server Connection Configuration": [
+            "Avoid hard-coding credentials or assuming one local SQL Server authentication mode.",
+        ],
+        "Read-Only Query Execution": [
+            "Do not rely only on string prefixes for SQL safety if the execution path can accept compound or commented statements.",
+        ],
+        "Schema Discovery And Introspection": [
+            "Avoid returning huge schema dumps by default; large metadata responses can swamp agent context windows.",
+        ],
+        "Safety Guardrails And Policy Enforcement": [
+            "Treat writes, DDL, and administrative operations as out of scope for v1 unless a later approved story changes that boundary.",
+        ],
+        "Result Shaping And Error Reporting": [
+            "Keep error messages useful without exposing secrets from connection strings or SQL Server diagnostics.",
+        ],
+        "Observability And Operational Limits": [
+            "Avoid logging raw SQL parameters or credentials while adding diagnostics.",
+        ],
+        "Agent Usability Documentation": [
+            "Keep examples aligned with implemented tools so documentation does not imply unsupported write/admin behavior.",
+        ],
         "Contract Runtime Boundary": [
             "Do not leak Scala collection or Concentric-specific runtime details beyond the dedicated boundary module.",
         ],

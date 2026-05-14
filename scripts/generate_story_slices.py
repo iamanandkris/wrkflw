@@ -6,6 +6,11 @@ import re
 from pathlib import Path
 
 
+STORY_SLICES_MARKER = "<!-- generated-by: wrkflw story slices -->"
+LEGACY_GENERATED_MARKER = "<!-- generated-by: wrkflw capability inventory -->"
+PLACEHOLDER_TITLES = {"# Story Slices", "# Stories"}
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
@@ -65,11 +70,25 @@ def capability_map(capabilities: list[dict[str, str]]) -> dict[str, dict[str, st
 
 
 def selected_capabilities(mode: str, capabilities: list[dict[str, str]]) -> list[dict[str, str]]:
-    if mode in {"tutorial-sample", "feature-harness", "product-service"}:
+    if mode in {"tutorial-sample", "feature-harness", "product-service", "sql-server-mcp"}:
         allowed = {"required", "recommended"}
     else:
         allowed = {"required"}
     return [cap for cap in capabilities if cap.get("status") in allowed]
+
+
+def should_preserve_existing_stories(path: Path) -> bool:
+    if not path.exists():
+        return False
+    existing = path.read_text(encoding="utf-8")
+    if not existing.strip():
+        return False
+    if STORY_SLICES_MARKER in existing or LEGACY_GENERATED_MARKER in existing:
+        return False
+    stripped_lines = [line.strip() for line in existing.splitlines() if line.strip()]
+    if stripped_lines and stripped_lines[0] in PLACEHOLDER_TITLES and len(stripped_lines) <= 1:
+        return False
+    return True
 
 PRODUCT_SERVICE_STORY_TEMPLATES = {
     "Contract Runtime Boundary": (
@@ -186,7 +205,26 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug:
             )
         return stories
 
-    if mode == "feature-harness":
+    if mode == "sql-server-mcp":
+        ordered_groups = [
+            (
+                "Bootstrap MCP Stdio Runtime And Connection Config",
+                ["MCP Runtime And Stdio Transport", "SQL Server Connection Configuration"],
+            ),
+            (
+                "Add Read-Only Query Execution Guardrails",
+                ["Read-Only Query Execution", "Safety Guardrails And Policy Enforcement"],
+            ),
+            (
+                "Add Schema Discovery And Result Shaping",
+                ["Schema Discovery And Introspection", "Result Shaping And Error Reporting"],
+            ),
+            (
+                "Add Operational Limits And Agent Guidance",
+                ["Observability And Operational Limits", "Agent Usability Documentation"],
+            ),
+        ]
+    elif mode == "feature-harness":
         ordered_groups = [
             ("Establish Core Contract Surface", ["Core Contract Usage", "Nested Structures", "Lifecycle And Field Semantics"]),
             ("Add Validation And Sanitization Coverage", ["Field Validation", "Sanitization And Visibility", "Custom Validators"]),
@@ -266,7 +304,7 @@ def render_story_file(
     lines = [
         "# Story Slices",
         "",
-        "<!-- generated-by: wrkflw capability inventory -->",
+        STORY_SLICES_MARKER,
         "",
         "## Context",
         "",
@@ -320,11 +358,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate capability-driven story slices for a workflow.")
     parser.add_argument("--slug", required=True)
     parser.add_argument("--root", default=".")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing human-curated story slices.")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
     wf = root / ".workflow" / args.slug
     wf.mkdir(parents=True, exist_ok=True)
+    output_path = wf / "stories.md"
+    if not args.force and should_preserve_existing_stories(output_path):
+        return 0
 
     context = parse_context(wf / "context.md")
     mode, capabilities = parse_capabilities(wf / "capabilities.md")
@@ -351,7 +393,7 @@ def main() -> int:
         completed_dependencies=completed_dependencies,
         deferred_follow_up=deferred_follow_up,
     )
-    (wf / "stories.md").write_text(rendered, encoding="utf-8")
+    output_path.write_text(rendered, encoding="utf-8")
     return 0
 
 

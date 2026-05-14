@@ -208,6 +208,24 @@ def remaining(items: list[str], n: int) -> list[str]:
     return items[n:]
 
 
+def first_pr_slice(scope: str, acceptance: list[str], tests: list[str]) -> tuple[list[str], list[str]]:
+    included: list[str] = []
+    scope = scope.strip()
+    if scope:
+        included.append(f"Implementation: {scope}")
+
+    acceptance_included = first_n(acceptance, 2)
+    test_included = first_n(tests, 2)
+    included.extend(f"Acceptance: {item}" for item in acceptance_included)
+    included.extend(f"Test: {item}" for item in test_included)
+
+    if not included:
+        included.append("Implementation: define and land the smallest reviewable behavior for the active story.")
+
+    deferred = remaining(acceptance, len(acceptance_included)) + remaining(tests, len(test_included))
+    return included, deferred
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an implementation plan for the active workflow story.")
     parser.add_argument("--slug", required=True)
@@ -257,8 +275,7 @@ def main() -> int:
     planner_metadata = dag_node.get("planner_metadata", {})
     planner_metadata = planner_metadata if isinstance(planner_metadata, dict) else {}
 
-    included = first_n(tests, 3) or first_n(acceptance, 3) or [scope]
-    deferred = remaining(tests, 3) + remaining(acceptance, 3)
+    included, deferred = first_pr_slice(scope, acceptance, tests)
     slots = implementation_slots(team)
     workstreams = distribute_items(included or [scope], slots)
 
