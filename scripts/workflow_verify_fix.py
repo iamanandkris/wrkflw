@@ -11,7 +11,6 @@ from pathlib import Path
 
 
 INPUT_FILES = [
-    "state.md",
     "stories.md",
     "review-log.md",
     "role-reviews.md",
@@ -581,6 +580,8 @@ def verify_fix_block(root: Path, slug: str, stage: str) -> tuple[bool, str]:
     if status in {"", "not_recorded"}:
         return True, "Verify-fix is required for the active story; run wrkflw:verify-fix before approval."
     story = active_story(root, slug)
+    if str(payload.get("active_story") or "").strip() != story:
+        return True, "Verify-fix is stale because the active story changed; rerun wrkflw:verify-fix."
     story_file = active_story_file(root, slug, story)
     hashes = payload.get("input_hashes", {})
     hashes = hashes if isinstance(hashes, dict) else {}

@@ -462,6 +462,41 @@ def test_feedback_synth_blocks_flagged_review_until_required_inputs_exist() -> N
         assert state["Current stage"] == "done"
 
 
+def test_feedback_synth_ignores_boundary_language_in_approved_risks() -> None:
+    with tempfile.TemporaryDirectory(prefix="wrkflw-feedback-synth-boundary-") as tmp:
+        root = Path(tmp)
+        seed_state(root, stage="review", active="Story 1")
+        write(
+            root / ".workflow" / "demo" / "execution-path.json",
+            """
+            {
+              "execution_path": {
+                "path": "flagged",
+                "synthesis_required": true,
+                "required_roles": ["Tech Lead", "Reviewer QA"],
+                "optional_roles": []
+              }
+            }
+            """,
+        )
+        write(
+            root / ".workflow" / "demo" / "role-reviews.md",
+            """
+            # Role Reviews
+
+            | Date | Story | Role | Verdict | Missing Requirements | Incorrect Assumptions | Risks | Questions | Suggested Changes | Evidence | Red-team Notes |
+            | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+            | 2026-05-13 | Story 1 | Tech Lead | approve | - | - | Deferred scaffold must stay excluded until later stories reconcile it. | - | - | Runtime scope reviewed. | - |
+            | 2026-05-13 | Story 1 | Reviewer QA | approve | - | - | Writes and HTTP remain out of scope for this story. | - | - | Protocol tests passed. | - |
+            """,
+        )
+
+        run_workflow(root, "feedback-synth")
+        payload = parse_feedback_synthesis(root)
+        assert payload["recommendation"] == "approve"
+        assert payload["status"] == "ready"
+
+
 def seed_issue_advisor_story(root: Path) -> None:
     seed_state(root, stage="review", active="Story 1")
     write(
@@ -880,6 +915,7 @@ def test_verify_fix_generates_fix_tasks_and_accepts_pass_evidence() -> None:
         assert len(payload["fix_tasks"]) == 2
         assert state["Human gate status"] == "blocked"
         assert state["Blocked reason"].startswith("Verify-fix recommends")
+        run_workflow(root, "review-sync")
 
         run_workflow(root, "verify-fix", "pass: all; evidence: local profile tests passed")
         payload = parse_verify_fix(root)
@@ -887,6 +923,10 @@ def test_verify_fix_generates_fix_tasks_and_accepts_pass_evidence() -> None:
         assert payload["status"] == "ready"
         assert payload["fix_tasks"] == []
         assert state["Blocked reason"] == ""
+        run_workflow(root, "review-sync")
+        state = parse_state(root)
+        assert state["Human gate status"] == "pending"
+        assert not state["Blocked reason"].startswith("Verify-fix is stale")
         records = root / ".workflow" / "demo" / "records" / "verify-fix.jsonl"
         assert '"status": "ready"' in records.read_text(encoding="utf-8")
 
@@ -2216,6 +2256,7 @@ def main() -> int:
         test_team_run_requires_dag,
         test_execution_path_routes_simple_and_flagged_stories,
         test_feedback_synth_blocks_flagged_review_until_required_inputs_exist,
+        test_feedback_synth_ignores_boundary_language_in_approved_risks,
         test_issue_advisor_maps_stuck_story_evidence_to_recovery_actions,
         test_issue_advisor_handles_modified_scope_and_debt_budget,
         test_replanner_proposes_and_applies_split_with_history,

@@ -239,6 +239,50 @@ def has_any(text: str, keywords: set[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def has_actionable_phrase(text: str, keywords: set[str]) -> bool:
+    for keyword in keywords:
+        if " " in keyword:
+            if keyword in text:
+                return True
+            continue
+        if re.search(rf"\b{re.escape(keyword)}\b", text):
+            return True
+    return False
+
+
+def actionable_scope_text(
+    reviews: list[dict[str, object]],
+    findings: list[dict[str, str]],
+    conflicts: list[dict[str, str]],
+) -> str:
+    parts: list[str] = []
+    for review in reviews:
+        verdict = str(review.get("verdict") or "").strip().lower()
+        fields = ["missing_requirements", "incorrect_assumptions"]
+        if verdict in {"approve-with-changes", "changes requested", "fix", "block", "blocked"}:
+            fields.append("suggested_changes")
+        for key in fields:
+            value = review.get(key)
+            if isinstance(value, list):
+                parts.extend(str(item) for item in value)
+            else:
+                parts.append(str(value or ""))
+    for finding in findings:
+        if (
+            finding.get("severity", "").strip().lower() in BLOCKING_SEVERITIES
+            and finding.get("resolution", "").strip().lower() in OPEN_VALUES
+        ):
+            parts.append(finding.get("finding", ""))
+    for conflict in conflicts:
+        if (
+            conflict.get("severity", "").strip().lower() in BLOCKING_SEVERITIES
+            and conflict.get("resolution", "").strip().lower() in OPEN_VALUES
+        ):
+            parts.append(conflict.get("conflict", ""))
+            parts.append(conflict.get("recommendation", ""))
+    return " ".join(parts).lower()
+
+
 def repeated_issue_detected(items: list[str]) -> bool:
     normalized = [normalize_text(item).lower() for item in items if normalize_text(item).lower() not in {"", "-", "none"}]
     counts = Counter(normalized)
@@ -386,14 +430,14 @@ def decide(
     if advisory_inputs:
         warnings.append("Non-blocking suggested changes remain: " + "; ".join(advisory_inputs[:3]))
 
-    text = evidence_text(reviews, findings, conflicts)
-    if has_any(text, {"replan", "wrong plan", "dependency graph", "design contradiction", "invalid plan"}):
+    action_text = actionable_scope_text(reviews, findings, conflicts)
+    if has_any(action_text, {"replan", "wrong plan", "dependency graph", "design contradiction", "invalid plan"}):
         reasons.append("Evidence points to plan-level contradiction or dependency restructuring.")
         return REPLAN, "Escalate to replanning before another implementation retry.", reasons, blockers, warnings
-    if has_any(text, {"split", "too broad", "too large", "smaller story", "separate story"}):
+    if has_actionable_phrase(action_text, {"split", "too broad", "too large", "smaller story", "separate story"}):
         reasons.append("Evidence suggests the story is too broad for one safe slice.")
         return SPLIT, "Split the story before continuing implementation.", reasons, blockers, warnings
-    if has_any(text, {"defer", "out of scope", "later slice", "postpone"}):
+    if has_actionable_phrase(action_text, {"defer", "out of scope", "later slice", "postpone"}):
         reasons.append("Evidence suggests part of the work should be deferred.")
         return DEFER, "Defer the disputed scope or move it to a later slice.", reasons, blockers, warnings
 

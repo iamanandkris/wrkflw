@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from workflow_accounting import format_accounting_summary, load_invocation_records
 from workflow_debt import format_debt_summary, has_blocking_debt
@@ -40,6 +41,7 @@ def parse_story_sections(path: Path) -> dict[str, list[str] | str]:
         "Acceptance Criteria": [],
         "Test Expectations": [],
         "Risks": [],
+        "Allowed Write Paths": [],
     }
     if not path.exists():
         return sections
@@ -51,7 +53,7 @@ def parse_story_sections(path: Path) -> dict[str, list[str] | str]:
         if line.startswith("## "):
             current = line[3:].strip()
             current_list = None
-            if current in {"Acceptance Criteria", "Test Expectations", "Risks"}:
+            if current in {"Acceptance Criteria", "Test Expectations", "Risks", "Allowed Write Paths"}:
                 current_list = sections[current]  # type: ignore[assignment]
             continue
         if current in {"Story", "Scope"} and line and not line.startswith("- "):
@@ -208,6 +210,113 @@ def remaining(items: list[str], n: int) -> list[str]:
     return items[n:]
 
 
+def clean_path_pattern(value: str) -> str:
+    cleaned = value.strip().strip("`").strip()
+    cleaned = cleaned.replace("\\", "/")
+    return cleaned.lstrip("./")
+
+
+def parse_allowed_patterns(story: dict[str, list[str] | str]) -> list[str]:
+    raw = story.get("Allowed Write Paths") or []
+    if not isinstance(raw, list):
+        return []
+    return [clean_path_pattern(item) for item in raw if clean_path_pattern(item)]
+
+
+def path_matches_allowed(path: str, allowed_patterns: list[str]) -> bool:
+    normalized = clean_path_pattern(path)
+    for raw_pattern in allowed_patterns:
+        pattern = clean_path_pattern(raw_pattern)
+        if not pattern or "<slug>" in pattern:
+            continue
+        if pattern.endswith("/**"):
+            prefix = pattern[:-3].rstrip("/")
+            if normalized == prefix or normalized.startswith(prefix + "/"):
+                return True
+            continue
+        if pattern.endswith("/*"):
+            prefix = pattern[:-2].rstrip("/")
+            if normalized.startswith(prefix + "/"):
+                return True
+            continue
+        if normalized == pattern:
+            return True
+        if "." not in Path(pattern).name and normalized.startswith(pattern.rstrip("/") + "/"):
+            return True
+    return False
+
+
+def ignored_scope_path(path: Path) -> bool:
+    return any(part in {"node_modules", "dist", ".workflow", ".git"} for part in path.parts)
+
+
+def load_json_object(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def tsconfig_include_patterns(root: Path) -> list[str]:
+    payload = load_json_object(root / "tsconfig.json")
+    includes = payload.get("include")
+    if isinstance(includes, list):
+        return [str(item) for item in includes if str(item).strip()]
+    if (root / "tsconfig.json").exists():
+        return ["**/*.ts"]
+    return []
+
+
+def expand_ts_include(root: Path, pattern: str) -> list[Path]:
+    try:
+        matches = list(root.glob(pattern))
+    except ValueError:
+        return []
+    return [
+        path
+        for path in matches
+        if path.is_file()
+        and path.suffix in {".ts", ".tsx", ".mts", ".cts"}
+        and not ignored_scope_path(path.relative_to(root))
+    ]
+
+
+def package_scripts(root: Path) -> dict[str, str]:
+    payload = load_json_object(root / "package.json")
+    scripts = payload.get("scripts")
+    if not isinstance(scripts, dict):
+        return {}
+    return {str(key): str(value) for key, value in scripts.items()}
+
+
+def validation_script_summary(root: Path) -> list[str]:
+    scripts = package_scripts(root)
+    interesting: list[str] = []
+    for name in ["build", "typecheck", "test"]:
+        command = scripts.get(name, "").strip()
+        if command:
+            interesting.append(f"npm run {name}: {command}")
+    return interesting
+
+
+def build_scope_drift(root: Path, story: dict[str, list[str] | str]) -> list[str]:
+    allowed_patterns = parse_allowed_patterns(story)
+    if not allowed_patterns:
+        return []
+
+    drift: list[str] = []
+    for pattern in tsconfig_include_patterns(root):
+        for path in expand_ts_include(root, pattern):
+            rel = path.relative_to(root).as_posix()
+            if not path_matches_allowed(rel, allowed_patterns):
+                drift.append(f"`{rel}` is included by `tsconfig.json` pattern `{pattern}` but is outside story Allowed Write Paths.")
+
+    return sorted(dict.fromkeys(drift))
+
+
 def first_pr_slice(scope: str, acceptance: list[str], tests: list[str]) -> tuple[list[str], list[str]]:
     included: list[str] = []
     scope = scope.strip()
@@ -274,6 +383,8 @@ def main() -> int:
     execution_path = execution_path if isinstance(execution_path, dict) else {}
     planner_metadata = dag_node.get("planner_metadata", {})
     planner_metadata = planner_metadata if isinstance(planner_metadata, dict) else {}
+    build_drift = build_scope_drift(root, story)
+    validation_scripts = validation_script_summary(root)
 
     included, deferred = first_pr_slice(scope, acceptance, tests)
     slots = implementation_slots(team)
@@ -345,6 +456,25 @@ def main() -> int:
     ])
     lines.extend([
         "",
+        "## Build Scope Drift Check",
+    ])
+    if build_drift:
+        lines.extend(
+            [
+                "- Status: action required before implementation starts.",
+                "- Why: validation may compile or run files the active story is not allowed to change.",
+                "- Resolution options: expand Allowed Write Paths, narrow the validation/build config for this story, archive/delete scratch scaffold, or split scaffold reconciliation into a separate story.",
+            ]
+        )
+        if validation_scripts:
+            lines.append("- Validation scripts observed:")
+            lines.extend(f"  - {item}" for item in validation_scripts)
+        lines.append("- Drift:")
+        lines.extend(f"  - {item}" for item in build_drift[:20])
+    else:
+        lines.append("- Status: no obvious TypeScript build-scope drift detected from `tsconfig.json` and active story Allowed Write Paths.")
+    lines.extend([
+        "",
         "## Recommended First PR Slice",
         "Take the first focused, demonstrable subset of the story that can land safely without pulling in broader cleanup or later-story work.",
         "",
@@ -395,6 +525,8 @@ def main() -> int:
             lines.append(f"- {risk}")
     else:
         lines.append("- Keep the slice small enough to remain reviewable and aligned with the story scope.")
+    if build_drift:
+        lines.append("- Resolve build-scope drift before approving implementation; otherwise validation can fail on out-of-story files.")
 
     lines.extend([
         "",

@@ -233,6 +233,56 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertIn("TypeScript MCP stdio runtime skeleton", bullets[0])
             self.assertTrue(any(line.startswith("- Test:") for line in bullets))
 
+    def test_implementation_plan_flags_typescript_build_scope_drift(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-build-scope-drift-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "sql-server-mcp-design"
+            workflow.mkdir(parents=True)
+            (root / "src" / "server").mkdir(parents=True)
+            (root / "src" / "server" / "createServer.ts").write_text("export {}\n", encoding="utf-8")
+            (root / "src" / "config.ts").write_text("export const scratch = true\n", encoding="utf-8")
+            (root / "tsconfig.json").write_text(
+                '{ "include": ["src/**/*.ts"] }\n',
+                encoding="utf-8",
+            )
+            (root / "package.json").write_text(
+                '{ "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit", "test": "vitest run" } }\n',
+                encoding="utf-8",
+            )
+            (workflow / "state.md").write_text(
+                "# State\n\n- Active items: Story 1\n",
+                encoding="utf-8",
+            )
+            (workflow / "story-1.md").write_text(
+                "\n".join(
+                    [
+                        "# Story 1",
+                        "",
+                        "## Story",
+                        "Runtime Contract Registry",
+                        "",
+                        "## Scope",
+                        "Build only the MCP runtime registry.",
+                        "",
+                        "## Allowed Write Paths",
+                        "- src/server/**",
+                        "- src/tools/**",
+                        "- test/protocol/**",
+                        "- tsconfig.json",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(generate_implementation_plan, root), 0)
+
+            plan = (workflow / "implementation-plan.md").read_text(encoding="utf-8")
+            self.assertIn("## Build Scope Drift Check", plan)
+            self.assertIn("Status: action required before implementation starts", plan)
+            self.assertIn("`src/config.ts` is included by `tsconfig.json` pattern `src/**/*.ts`", plan)
+            self.assertIn("expand Allowed Write Paths, narrow the validation/build config", plan)
+
 
 if __name__ == "__main__":
     unittest.main()
