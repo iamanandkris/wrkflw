@@ -178,6 +178,15 @@ def section_csv(sections: dict[str, list[str]], name: str) -> list[str]:
     return values
 
 
+def story_field_values(story_block: str, field_name: str) -> list[str]:
+    field_prefix = f"{field_name.lower()}:"
+    for line in story_block.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith(field_prefix):
+            return [item.strip() for item in stripped.split(":", 1)[1].split(",") if item.strip()]
+    return []
+
+
 def capability_coverage_values(
     sections: dict[str, list[str]],
     capability_inventory: list[dict[str, object]],
@@ -252,6 +261,48 @@ def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]
     return mode, capabilities
 
 
+STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "before",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "it",
+    "not",
+    "of",
+    "on",
+    "only",
+    "or",
+    "the",
+    "to",
+    "with",
+}
+
+
+def meaningful_tokens(value: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if len(token) > 2 and token not in STOP_WORDS}
+
+
+def capability_match_score(capability: dict[str, object], story_tokens: set[str]) -> tuple[int, int, set[str]]:
+    name = str(capability["name"])
+    prompts = capability["story_prompts"]  # type: ignore[assignment]
+    name_tokens = meaningful_tokens(name)
+    prompt_tokens = meaningful_tokens(" ".join(str(prompt) for prompt in prompts))
+    name_matches = name_tokens & story_tokens
+    prompt_matches = prompt_tokens & story_tokens
+    return len(name_matches), len(prompt_matches), name_matches | prompt_matches
+
+
 def infer_story_coverage(
     story_title: str,
     story_scope: str,
@@ -259,21 +310,35 @@ def infer_story_coverage(
     story_test_expectations: list[str],
     capabilities: list[dict[str, object]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    text = " ".join([story_title, story_scope, *story_acceptance, *story_test_expectations]).lower()
+    story_title_tokens = meaningful_tokens(story_title)
+    story_tokens = meaningful_tokens(" ".join([story_title, story_scope, *story_acceptance, *story_test_expectations]))
     covered: list[dict[str, object]] = []
     deferred: list[dict[str, object]] = []
     for capability in capabilities:
-        name = str(capability["name"])
         status = str(capability["status"])
-        prompts = capability["story_prompts"]  # type: ignore[assignment]
-        capability_text = " ".join([name, str(capability.get("why", "")), str(capability.get("why_now", "")), *prompts]).lower()
-        name_tokens = re.findall(r"[a-z0-9]+", name.lower())
-        prompt_hits = sum(1 for token in re.findall(r"[a-z0-9]+", capability_text) if len(token) > 4 and token in text)
-        title_hits = sum(1 for token in name_tokens if token in text)
-        if title_hits > 0 or prompt_hits >= 2:
+        name_hits, prompt_hits, _matched = capability_match_score(capability, story_tokens)
+        if name_hits >= 2 or (name_hits >= 1 and prompt_hits >= 2) or prompt_hits >= 4:
             covered.append(capability)
         elif status in {"required", "recommended", "deferred to later epic", "recommended follow-up"}:
             deferred.append(capability)
+    if len(covered) > 1:
+        strong = [capability for capability in covered if capability_match_score(capability, story_tokens)[0] >= 2]
+        if strong:
+            covered = strong
+    if story_title_tokens & {"classifier", "classification", "policy"}:
+        policy_capabilities = [capability for capability in covered if "policy" in meaningful_tokens(str(capability["name"]))]
+        if policy_capabilities:
+            covered = policy_capabilities
+    if len(covered) > 3:
+        covered = sorted(
+            covered,
+            key=lambda capability: (
+                capability_match_score(capability, story_tokens)[0],
+                capability_match_score(capability, story_tokens)[1],
+                len(capability_match_score(capability, story_tokens)[2]),
+            ),
+            reverse=True,
+        )[:3]
     return covered, deferred
 
 
@@ -327,6 +392,8 @@ def main() -> int:
     story_scope = section_paragraph(enrichment_sections, "Scope")
     capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
     story_capability_coverage = capability_coverage_values(enrichment_sections, capability_inventory)
+    if not story_capability_coverage:
+        story_capability_coverage = story_field_values(story_block, "Covers")
     story_acceptance = section_bullets(enrichment_sections, "Acceptance Criteria")
     story_test_expectations = section_bullets(enrichment_sections, "Test Expectations")
     story_risks = section_bullets(enrichment_sections, "Risks")

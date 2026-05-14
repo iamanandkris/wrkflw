@@ -465,6 +465,137 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertNotIn("Read-Only Query Execution", spec)
             self.assertNotIn("Schema Discovery Resources", tasks)
 
+    def test_openspec_bridge_uses_story_covers_before_fuzzy_capability_inference(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-openspec-story-covers-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "demo"
+            workflow.mkdir(parents=True)
+            change = root / "openspec" / "changes" / "demo-read-only-query-policy-classifier"
+            change.mkdir(parents=True)
+            (workflow / "workflow-contract.md").write_text("- OpenSpec lane active: true\n", encoding="utf-8")
+            (workflow / "state.md").write_text(
+                "\n".join(
+                    [
+                        "# State",
+                        "",
+                        "- Current stage: spec-authoring",
+                        "- Human gate status: pending",
+                        "- Active items: Story 4",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "links.md").write_text("# Links\n\n", encoding="utf-8")
+            (workflow / "stories.md").write_text(
+                "\n".join(
+                    [
+                        "# Stories",
+                        "",
+                        "## Story 4: Read-Only Query Policy Classifier",
+                        "Implement query normalization and policy classification before execution.",
+                        "Depends on: Story 2",
+                        "Covers: Query Policy Engine",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "story-4.md").write_text(
+                "\n".join(
+                    [
+                        "# Story 4: Read-Only Query Policy Classifier",
+                        "",
+                        "## Acceptance Criteria",
+                        "- Allows only a single `SELECT` or CTE statement for v1 query execution.",
+                        "- Blocks DML, DDL, `EXEC`, `MERGE`, `TRUNCATE`, `SELECT INTO`, linked-server access, dynamic SQL, bulk access, temp procedure creation, `WAITFOR`, and dangerous server features by default.",
+                        "- Applies allowed database/schema/object rules.",
+                        "- Produces query hash, normalized SQL, policy violations, warnings, and effective limits.",
+                        "- Treats parsing/classification as defense in depth, not the only boundary.",
+                        "",
+                        "## Test Expectations",
+                        "- Tests cover allowed select/CTE forms and all blocked categories.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "capabilities.md").write_text(
+                "\n".join(
+                    [
+                        "# Capability Inventory",
+                        "",
+                        "## Workflow Mode",
+                        "- Mode: product-service",
+                        "",
+                        "## Capability Categories",
+                        "### Read-Only Query Execution",
+                        "- Status: required",
+                        "- Story prompts:",
+                        "- Implement single-statement `SELECT`/CTE-only execution.",
+                        "",
+                        "### Query Policy Engine",
+                        "- Status: required",
+                        "- Story prompts:",
+                        "- Classify statements before execution.",
+                        "",
+                        "### Developer And Operator Documentation",
+                        "- Status: required",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(bridge_workflow_to_openspec, "run"):
+                self.assertEqual(self.run_script_main(bridge_workflow_to_openspec, root, slug="demo"), 0)
+
+            proposal = (change / "proposal.md").read_text(encoding="utf-8")
+            spec = (change / "specs" / "read-only-query-policy-classifier" / "spec.md").read_text(encoding="utf-8")
+            tasks = (change / "tasks.md").read_text(encoding="utf-8")
+            self.assertIn("Query Policy Engine", proposal)
+            self.assertIn("this story covers: Query Policy Engine", spec)
+            self.assertNotIn("Read-Only Query Execution", proposal)
+            self.assertNotIn("Developer And Operator Documentation", spec)
+            self.assertNotIn("Read-Only Query Execution", tasks)
+
+    def test_policy_classifier_fuzzy_coverage_does_not_inherit_query_execution(self) -> None:
+        capabilities = [
+            {
+                "name": "Read-Only Query Execution",
+                "status": "required",
+                "why": "",
+                "why_now": "",
+                "story_prompts": ["Implement single-statement SELECT/CTE-only execution."],
+            },
+            {
+                "name": "Query Policy Engine",
+                "status": "required",
+                "why": "",
+                "why_now": "",
+                "story_prompts": ["Classify statements before execution.", "Block dangerous SQL Server features."],
+            },
+            {
+                "name": "Developer And Operator Documentation",
+                "status": "required",
+                "why": "",
+                "why_now": "",
+                "story_prompts": ["Document policy examples."],
+            },
+        ]
+
+        covered, _deferred = bridge_workflow_to_openspec.infer_story_coverage(
+            "Read-Only Query Policy Classifier",
+            "",
+            [
+                "Allows only a single `SELECT` or CTE statement for v1 query execution.",
+                "Blocks DML, DDL, `EXEC`, `MERGE`, `TRUNCATE`, `SELECT INTO`, linked-server access, dynamic SQL, bulk access, temp procedure creation, `WAITFOR`, and dangerous server features by default.",
+                "Applies allowed database/schema/object rules.",
+                "Produces query hash, normalized SQL, policy violations, warnings, and effective limits.",
+                "Treats parsing/classification as defense in depth, not the only boundary.",
+            ],
+            ["Tests cover allowed select/CTE forms and all blocked categories."],
+            capabilities,
+        )
+
+        self.assertEqual([capability["name"] for capability in covered], ["Query Policy Engine"])
+
     def test_team_sync_valid_report_clears_previous_team_sync_block(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-team-sync-clear-") as tmp:
             root = Path(tmp)
