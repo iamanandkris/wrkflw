@@ -823,6 +823,28 @@ class WorkflowRegressionTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (workflow / "execution-board.md").write_text(
+                "\n".join(
+                    [
+                        "# Execution Board",
+                        "",
+                        "- Workflow slug: demo",
+                        "- Active story: Story 2",
+                        "- Active owner: Reviewer QA",
+                        "- Current handoff: Reviewer QA -> Product Owner",
+                        "",
+                        "| Work Item | Owner Role | Status | Blocked By | Reviewer | Notes |",
+                        "| --- | --- | --- | --- | --- | --- |",
+                        "| Story scope and acceptance review | Product Owner | done |  | Reviewer QA | Story 2 release plan is acceptable |",
+                        "| Technical decomposition | Tech Lead | done |  | Product Owner | Story 2 implementation matches the approved slice |",
+                        "| Implementation slice 1 | Implementer 1 | done |  | Reviewer QA | Story 2 configuration-profile boundary implemented |",
+                        "| Implementation slice 2 | Implementer 2 | optional |  | Reviewer QA |  |",
+                        "| Review and challenge | Reviewer QA | done |  | Product Owner | Story 2 review evidence recorded |",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
             (workflow / "story-3.md").write_text(
                 "# Story 3\n\n## Allowed Write Paths\n- src/schema/**\n",
                 encoding="utf-8",
@@ -834,6 +856,53 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertIn("- Current stage: story-enrichment", state)
             self.assertIn("- Human gate status: pending", state)
             self.assertIn("- Active items: Story 3", state)
+
+            board = (workflow / "execution-board.md").read_text(encoding="utf-8")
+            self.assertIn("- Active story: Story 3", board)
+            self.assertIn("| Story scope and acceptance review | Product Owner | in-progress |  | Reviewer QA |  |", board)
+            self.assertIn("| Technical decomposition | Tech Lead | planned |  | Product Owner |  |", board)
+            self.assertNotIn("Story 2 release plan is acceptable", board)
+            self.assertNotIn("Story 2 configuration-profile boundary implemented", board)
+
+    def test_execution_board_sync_clears_stale_notes_when_header_already_updated(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-stale-execution-board-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "demo"
+            workflow.mkdir(parents=True)
+            (workflow / "execution-board.md").write_text(
+                "\n".join(
+                    [
+                        "# Execution Board",
+                        "",
+                        "- Workflow slug: demo",
+                        "- Active story: Story 3",
+                        "- Active owner: Reviewer QA",
+                        "- Current handoff: Reviewer QA -> Product Owner",
+                        "",
+                        "| Work Item | Owner Role | Status | Blocked By | Reviewer | Notes |",
+                        "| --- | --- | --- | --- | --- | --- |",
+                        "| Story scope and acceptance review | Product Owner | done |  | Reviewer QA | Story 2 release plan is acceptable |",
+                        "| Technical decomposition | Tech Lead | done |  | Product Owner | Story 2 implementation matches the approved slice |",
+                        "| Implementation slice 1 | Implementer 1 | done |  | Reviewer QA | Story 2 configuration-profile boundary implemented |",
+                        "| Implementation slice 2 | Implementer 2 | optional |  | Reviewer QA |  |",
+                        "| Review and challenge | Reviewer QA | done |  | Product Owner | Story 2 review evidence recorded |",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            handle_workflow_command.sync_execution_board(
+                root,
+                "demo",
+                {"Current stage": "story-enrichment", "Active items": "Story 3"},
+            )
+
+            board = (workflow / "execution-board.md").read_text(encoding="utf-8")
+            self.assertIn("- Active story: Story 3", board)
+            self.assertIn("| Story scope and acceptance review | Product Owner | in-progress |  | Reviewer QA |  |", board)
+            self.assertNotIn("Story 2 release plan is acceptable", board)
+            self.assertNotIn("Story 2 configuration-profile boundary implemented", board)
 
     def test_openspec_drift_check_accepts_markdown_wrapped_change_path(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-openspec-link-") as tmp:

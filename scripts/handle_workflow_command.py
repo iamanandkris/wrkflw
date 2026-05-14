@@ -2475,7 +2475,25 @@ def sync_execution_board(root: Path, workflow_slug: str, state: dict[str, str]) 
     except ValueError:
         parallel_slots = 1
 
-    _, row_map = execution_board_rows(board_path)
+    board, row_map = execution_board_rows(board_path)
+    active_story_key = normalize_item_name(active_story)
+    previous_active_story = normalize_item_name(board.get("Active story", ""))
+    stale_note_story = ""
+    for row in row_map.values():
+        note = row[5] if len(row) > 5 else ""
+        for match in re.findall(r"\bStory\s+\d+\b", note, flags=re.IGNORECASE):
+            matched_story = normalize_item_name(match)
+            if matched_story and matched_story != active_story_key:
+                stale_note_story = matched_story
+                break
+        if stale_note_story:
+            break
+    if (
+        previous_active_story
+        and previous_active_story != "-"
+        and previous_active_story != active_story_key
+    ) or stale_note_story:
+        row_map = {}
 
     def canonical_row(name: str, owner: str, reviewer: str, status: str) -> list[str]:
         row = row_map.get(name, [name, owner, status, "", reviewer, ""])
