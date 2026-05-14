@@ -25,7 +25,6 @@ BLOCKING_SEVERITIES = {"blocking", "blocker", "critical", "high"}
 REVIEW_ROLES_FOR_FLAGGED = {"Tech Lead", "Reviewer QA"}
 INPUT_FILES = [
     "stories.md",
-    "dag.json",
     "role-reviews.md",
     "review-log.md",
     "conflicts.md",

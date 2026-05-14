@@ -15,6 +15,7 @@ if str(SCRIPTS) not in sys.path:
 from workflow_integration_gate import redact_output
 from workflow_replanner import completed_apply_blockers
 from workflow_verify_fix import evidence_mentions_criterion
+from workflow_feedback_synthesizer import feedback_synthesis_block, run_feedback_synthesis
 import generate_capability_inventory
 import generate_implementation_plan
 import generate_story_slices
@@ -307,6 +308,66 @@ class WorkflowRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_feedback_synth_does_not_stale_on_derived_dag_metadata_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-feedback-dag-metadata-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "demo"
+            workflow.mkdir(parents=True)
+            (workflow / "state.md").write_text(
+                "\n".join(
+                    [
+                        "# State",
+                        "",
+                        "- Current stage: release-planning",
+                        "- Human gate status: pending",
+                        "- Active items: Story 2",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "stories.md").write_text("## Story 2: Config\n", encoding="utf-8")
+            (workflow / "story-2.md").write_text("# Story 2\n\n## Acceptance Criteria\n- Config passes.\n", encoding="utf-8")
+            (workflow / "execution-path.json").write_text(
+                '{"execution_path":{"path":"flagged","synthesis_required":true}}\n',
+                encoding="utf-8",
+            )
+            (workflow / "dag.json").write_text(
+                '{"generated_at":"2026-05-14T20:00:00Z","current_stage":"review","human_gate_status":"pending"}\n',
+                encoding="utf-8",
+            )
+            (workflow / "role-reviews.md").write_text(
+                "\n".join(
+                    [
+                        "# Role Reviews",
+                        "",
+                        "| Date | Story | Role | Verdict | Missing Requirements | Incorrect Assumptions | Risks | Questions | Suggested Changes | Evidence | Red-team Notes |",
+                        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                        "| 2026-05-14 | Story 2 | Tech Lead | approve | - | - | - | - | - | Config passes. | - |",
+                        "| 2026-05-14 | Story 2 | Reviewer QA | approve | - | - | - | - | - | Config passes. | - |",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "review-log.md").write_text(
+                "# Review Log\n\n| Date | Role | Severity | Finding | Resolution |\n| --- | --- | --- | --- | --- |\n",
+                encoding="utf-8",
+            )
+            (workflow / "conflicts.md").write_text(
+                "# Conflicts\n\n| Date | Story | Role | Severity | Conflict | Recommendation | Resolution |\n| --- | --- | --- | --- | --- | --- | --- |\n",
+                encoding="utf-8",
+            )
+
+            payload = run_feedback_synthesis(root, "demo", "initial synthesis")
+            self.assertEqual(payload["recommendation"], "approve")
+
+            (workflow / "dag.json").write_text(
+                '{"generated_at":"2026-05-14T20:01:00Z","current_stage":"done","human_gate_status":"approved"}\n',
+                encoding="utf-8",
+            )
+
+            blocked, reason = feedback_synthesis_block(root, "demo", "release-planning")
+            self.assertFalse(blocked, reason)
+
     def test_openspec_bridge_uses_explicit_story_capability_coverage_only(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-openspec-coverage-") as tmp:
             root = Path(tmp)
@@ -575,6 +636,73 @@ class WorkflowRegressionTests(unittest.TestCase):
             state = (workflow / "state.md").read_text(encoding="utf-8")
             self.assertNotIn("reported changes outside allowed write scope", state)
             self.assertIn("- Item note: Implementer 1 marked done", state)
+
+    def test_next_from_done_selects_next_dag_ready_story(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-next-ready-story-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "demo"
+            workflow.mkdir(parents=True)
+            (workflow / "state.md").write_text(
+                "\n".join(
+                    [
+                        "# State",
+                        "",
+                        "- Current stage: done",
+                        "- Human gate status: approved",
+                        "- Blocked reason:",
+                        "- Active items: Story 2",
+                        "- Next action: workflow complete",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "stories.md").write_text(
+                "\n".join(
+                    [
+                        "# Stories",
+                        "",
+                        "## Story 1: Runtime",
+                        "",
+                        "## Story 2: Config",
+                        "Depends on: Story 1",
+                        "",
+                        "## Story 3: Schema Discovery",
+                        "Depends on: Story 2",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "history.md").write_text(
+                "\n".join(
+                    [
+                        "# History",
+                        "",
+                        "## Event 001",
+                        "- Command: approve",
+                        "- To stage: done",
+                        "- Active items: Story 1",
+                        "",
+                        "## Event 002",
+                        "- Command: approve",
+                        "- To stage: done",
+                        "- Active items: Story 2",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "story-3.md").write_text(
+                "# Story 3\n\n## Allowed Write Paths\n- src/schema/**\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_workflow_command(root, "next"), 0)
+
+            state = (workflow / "state.md").read_text(encoding="utf-8")
+            self.assertIn("- Current stage: story-enrichment", state)
+            self.assertIn("- Human gate status: pending", state)
+            self.assertIn("- Active items: Story 3", state)
 
     def test_openspec_drift_check_accepts_markdown_wrapped_change_path(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-openspec-link-") as tmp:

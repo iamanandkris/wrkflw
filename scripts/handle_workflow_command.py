@@ -4849,6 +4849,19 @@ def handle_next(
     if gate_status in BLOCKED_STATES:
         state["Next action"] = state.get("Next action") or "resolve the current workflow block before continuing"
         return state
+    if current == "done" and root is not None and workflow_slug is not None:
+        maybe_generate_story_dag(root, workflow_slug, required=True)
+        dag_payload = load_story_dag(root, workflow_slug)
+        block_reason = dag_block_reason(dag_payload)
+        if block_reason:
+            state["Human gate status"] = "blocked"
+            state["Blocked reason"] = block_reason
+            state["Next action"] = "review dag-validation.md before selecting the next story"
+            return state
+        ready_node = first_ready_dag_node(dag_payload)
+        ready_story = dag_story_name(ready_node)
+        if ready_story and normalize_item_name(ready_story) != normalize_item_name(active_story_name(state)):
+            return handle_proceed_only(state, ready_story, "selected next DAG-ready story", root, workflow_slug)
     if current in GATED_STAGES and gate_status != "approved":
         if root is not None and workflow_slug is not None and auto_approve_enabled(root, workflow_slug, current):
             return handle_approve_with_reason(state, "auto-approved via wrkflw:next", root, workflow_slug)
