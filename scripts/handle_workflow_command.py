@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from fnmatch import fnmatch
 import hashlib
 import json
 import os
@@ -648,6 +649,15 @@ def parse_kv_list(path: Path) -> dict[str, str]:
         key, _, value = line[2:].partition(":")
         values[key.strip()] = value.strip()
     return values
+
+
+def clean_markdown_path_ref(value: str) -> str:
+    cleaned = value.strip()
+    while len(cleaned) >= 2 and cleaned[0] == "`" and cleaned[-1] == "`":
+        cleaned = cleaned[1:-1].strip()
+    if len(cleaned) >= 2 and cleaned[0] == "<" and cleaned[-1] == ">":
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
 
 
 def write_kv_list(path: Path, title: str, fields: list[str], values: dict[str, str]) -> None:
@@ -1750,8 +1760,49 @@ def write_assignment_rows(path: Path, workflow_slug: str, rows: dict[str, dict[s
     path.write_text("\n".join(output), encoding="utf-8")
 
 
+PLACEHOLDER_ALLOWED_PATHS = {
+    "-",
+    "none",
+    "declare concrete module/file prefixes before parallel team-run",
+}
+
+
 def parse_allowed_paths(value: str) -> list[str]:
-    return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
+    items: list[str] = []
+    for raw_line in value.splitlines() or [value]:
+        line = raw_line.strip()
+        if line.startswith("- "):
+            line = line[2:].strip()
+        for item in line.split(","):
+            cleaned = item.strip().rstrip("/")
+            if not cleaned:
+                continue
+            if cleaned.lower() in PLACEHOLDER_ALLOWED_PATHS:
+                continue
+            items.append(cleaned)
+    return items
+
+
+def story_allowed_write_paths(root: Path, workflow_slug: str, active_story: str) -> list[str]:
+    match = re.search(r"(\d+)", active_story)
+    if not match:
+        return []
+    story_path = root / ".workflow" / workflow_slug / f"story-{match.group(1)}.md"
+    if not story_path.exists():
+        return []
+
+    capture = False
+    lines: list[str] = []
+    for raw_line in story_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith("## "):
+            if capture:
+                break
+            capture = stripped[3:].strip().lower() == "allowed write paths"
+            continue
+        if capture:
+            lines.append(raw_line)
+    return parse_allowed_paths("\n".join(lines))
 
 
 def paths_overlap(left: str, right: str) -> bool:
@@ -1788,15 +1839,29 @@ def path_allowed(changed_path: str, allowed_paths: list[str]) -> bool:
         allowed_normalized = allowed.strip().lstrip("./").rstrip("/")
         if not allowed_normalized:
             continue
+        if allowed_normalized.endswith("/**"):
+            prefix = allowed_normalized[:-3].rstrip("/")
+            if normalized == prefix or normalized.startswith(prefix + "/"):
+                return True
+        if "*" in allowed_normalized or "?" in allowed_normalized:
+            if fnmatch(normalized, allowed_normalized):
+                return True
         if normalized == allowed_normalized or normalized.startswith(allowed_normalized + "/"):
             return True
     return False
 
 
-def validate_changed_paths(role: str, rows: dict[str, dict[str, str]], changed_paths: list[str]) -> tuple[bool, str]:
-    if role not in rows or not changed_paths:
+def validate_changed_paths(
+    role: str,
+    rows: dict[str, dict[str, str]],
+    changed_paths: list[str],
+    fallback_allowed_paths: list[str] | None = None,
+) -> tuple[bool, str]:
+    if not changed_paths:
         return True, ""
-    allowed_paths = parse_allowed_paths(rows[role].get("Allowed Write Paths", ""))
+    allowed_paths = parse_allowed_paths(rows.get(role, {}).get("Allowed Write Paths", ""))
+    if not allowed_paths and role.startswith("Implementer"):
+        allowed_paths = fallback_allowed_paths or []
     if not allowed_paths:
         return True, ""
     invalid = [path for path in changed_paths if path.lower() != "none" and not path_allowed(path, allowed_paths)]
@@ -1807,6 +1872,23 @@ def validate_changed_paths(role: str, rows: dict[str, dict[str, str]], changed_p
             f"Allowed paths: {', '.join(allowed_paths)}",
         )
     return True, ""
+
+
+def clear_resolved_team_sync_block(state: dict[str, str]) -> None:
+    if state.get("Human gate status") != "blocked":
+        return
+    reason = state.get("Blocked reason", "").strip()
+    team_sync_block = (
+        reason.startswith("team-sync requires")
+        or reason.startswith("team-sync received unsupported status")
+        or reason.startswith("Agent result schema validation failed")
+        or "reported changes outside allowed write scope" in reason
+    )
+    if not team_sync_block:
+        return
+    current = ensure_stage(state.get("Current stage") or "discuss")
+    state["Human gate status"] = "pending" if current in GATED_STAGES else "approved"
+    state["Blocked reason"] = ""
 
 
 def finding_severity_and_text(raw: str) -> tuple[str, str]:
@@ -2724,7 +2806,8 @@ def handle_team_sync(
     active_story = active_story_name(state) or "-"
     sync_team_story_headers(root, workflow_slug, active_story)
 
-    allowed, scope_reason = validate_changed_paths(role, rows, changed_paths)
+    fallback_allowed_paths = story_allowed_write_paths(root, workflow_slug, active_story)
+    allowed, scope_reason = validate_changed_paths(role, rows, changed_paths, fallback_allowed_paths)
     if not allowed:
         state["Human gate status"] = "blocked"
         state["Blocked reason"] = scope_reason
@@ -2738,6 +2821,8 @@ def handle_team_sync(
             "Reconcile the reported file changes with the declared write scope",
         )
         return state
+
+    clear_resolved_team_sync_block(state)
 
     details: list[str] = []
     if sync_source:
@@ -4181,7 +4266,7 @@ def handle_integration_gate(
 def maybe_archive_openspec(root: Path, workflow_slug: str) -> None:
     links_path = root / ".workflow" / workflow_slug / "links.md"
     links = parse_kv_list(links_path)
-    change_ref = links.get("OpenSpec change", "").strip()
+    change_ref = clean_markdown_path_ref(links.get("OpenSpec change", ""))
     if not change_ref:
         return
 
@@ -4228,7 +4313,7 @@ def detect_artifact_drift(
         return False, ""
 
     links = parse_kv_list(root / ".workflow" / workflow_slug / "links.md")
-    change_ref = links.get("OpenSpec change", "").strip()
+    change_ref = clean_markdown_path_ref(links.get("OpenSpec change", ""))
     if not change_ref:
         return True, "OpenSpec is required, but no active OpenSpec change is recorded in links.md."
 

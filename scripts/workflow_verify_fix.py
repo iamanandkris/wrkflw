@@ -15,8 +15,6 @@ INPUT_FILES = [
     "review-log.md",
     "role-reviews.md",
     "conflicts.md",
-    "feedback-synthesis.json",
-    "issue-advisor.json",
     "ci-feedback.json",
     "records/ci-feedback.jsonl",
     "merge-gate.json",
@@ -259,13 +257,44 @@ def selected_by(selectors: list[str], criterion: str, index: int) -> list[str]:
     return [selector for selector in selectors if criterion_matches(selector, criterion, index)]
 
 
+STOP_TERMS = {
+    "and",
+    "for",
+    "from",
+    "must",
+    "never",
+    "not",
+    "shall",
+    "should",
+    "that",
+    "then",
+    "when",
+    "where",
+    "with",
+}
+
+
+def evidence_terms(value: object) -> set[str]:
+    raw = str(value or "")
+    camel_split = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", raw)
+    text = camel_split.lower()
+    compact = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    terms = {word for word in re.findall(r"[a-z0-9]{2,}", text) if word not in STOP_TERMS}
+
+    if "connectionid" in compact or "connection id" in text or "profile id" in text or "profile ids" in text:
+        terms.add("__connection_selector__")
+    if "trustservercertificate" in compact or "tls" in terms or "certificate" in terms:
+        terms.add("__tls_certificate__")
+    return terms
+
+
 def evidence_mentions_criterion(text: str, criterion: str) -> bool:
-    criterion_words = [word for word in re.findall(r"[a-z0-9]{4,}", criterion.lower()) if word not in {"should", "must", "when", "then", "with", "from", "that"}]
+    criterion_words = {word for word in evidence_terms(criterion) if len(word) >= 4 or word.startswith("__")}
     if not criterion_words:
         return False
-    lower = text.lower()
-    matches = sum(1 for word in set(criterion_words) if word in lower)
-    return matches >= min(2, len(set(criterion_words)))
+    text_words = evidence_terms(text)
+    matches = sum(1 for word in criterion_words if word in text_words)
+    return matches >= min(2, len(criterion_words))
 
 
 def evidence_inputs(

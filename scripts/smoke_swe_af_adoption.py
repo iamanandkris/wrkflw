@@ -931,6 +931,66 @@ def test_verify_fix_generates_fix_tasks_and_accepts_pass_evidence() -> None:
         assert '"status": "ready"' in records.read_text(encoding="utf-8")
 
 
+def test_feedback_synth_and_verify_fix_do_not_stale_each_other() -> None:
+    with tempfile.TemporaryDirectory(prefix="wrkflw-review-gate-cycle-") as tmp:
+        root = Path(tmp)
+        seed_state(root, stage="review", active="Story 1")
+        write(
+            root / ".workflow" / "demo" / "execution-path.json",
+            """
+            {
+              "execution_path": {
+                "path": "flagged",
+                "synthesis_required": true,
+                "required_roles": ["Tech Lead", "Reviewer QA"],
+                "optional_roles": []
+              }
+            }
+            """,
+        )
+        write(
+            root / ".workflow" / "demo" / "story-1.md",
+            """
+            # Story 1
+
+            ## Acceptance Criteria
+            - API returns the saved user profile.
+            """,
+        )
+        write(
+            root / ".workflow" / "demo" / "role-reviews.md",
+            """
+            # Role Reviews
+
+            | Date | Story | Role | Verdict | Missing Requirements | Incorrect Assumptions | Risks | Questions | Suggested Changes | Evidence | Red-team Notes |
+            | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+            | 2026-05-13 | Story 1 | Tech Lead | approve | - | - | - | - | - | API boundary reviewed. | - |
+            | 2026-05-13 | Story 1 | Reviewer QA | approve | - | - | - | - | - | Profile acceptance test passed. | - |
+            """,
+        )
+        write(
+            root / ".workflow" / "demo" / "review-log.md",
+            """
+            # Review Log
+
+            | Date | Role | Severity | Finding | Resolution |
+            | --- | --- | --- | --- | --- |
+            | 2026-05-13 | Reviewer QA | info | Story 1: no serious findings remain | approved for release planning |
+            """,
+        )
+
+        run_workflow(root, "feedback-synth")
+        assert parse_feedback_synthesis(root)["status"] == "ready"
+        run_workflow(root, "verify-fix", "pass: all; evidence: local profile tests passed")
+        assert parse_verify_fix(root)["status"] == "ready"
+
+        run_workflow(root, "approve")
+        state = parse_state(root)
+        assert state["Current stage"] == "release-planning"
+        assert state["Human gate status"] == "pending"
+        assert "stale" not in state["Blocked reason"].lower()
+
+
 def test_verify_fix_blocks_review_sync_when_stale() -> None:
     with tempfile.TemporaryDirectory(prefix="wrkflw-verify-fix-stale-") as tmp:
         root = Path(tmp)
@@ -2271,6 +2331,7 @@ def main() -> int:
         test_replanner_blocks_split_apply_after_story_completed,
         test_replanner_blocks_modified_acceptance_apply_after_story_completed,
         test_verify_fix_generates_fix_tasks_and_accepts_pass_evidence,
+        test_feedback_synth_and_verify_fix_do_not_stale_each_other,
         test_verify_fix_blocks_review_sync_when_stale,
         test_verify_fix_feeds_feedback_synth_and_issue_advisor,
         test_ci_feedback_records_failed_and_passed_checks,

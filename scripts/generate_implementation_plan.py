@@ -461,9 +461,9 @@ def main() -> int:
     if build_drift:
         lines.extend(
             [
-                "- Status: action required before implementation starts.",
-                "- Why: validation may compile or run files the active story is not allowed to change.",
-                "- Resolution options: expand Allowed Write Paths, narrow the validation/build config for this story, archive/delete scratch scaffold, or split scaffold reconciliation into a separate story.",
+                "- Status: warning before implementation starts.",
+                "- Why: validation may compile or run baseline files outside the active story write scope; do not edit those files unless the story explicitly allows it.",
+                "- Resolution options: keep the drift as prior-story baseline validation evidence, expand Allowed Write Paths when ownership is intentional, narrow the validation/build config for this story, archive/delete scratch scaffold, or split scaffold reconciliation into a separate story.",
             ]
         )
         if validation_scripts:

@@ -186,13 +186,31 @@ def capability_coverage_values(
     values: list[str] = []
     for line in sections.get("Capability Coverage", []):
         stripped = line.strip()
-        if not stripped or stripped.startswith("- "):
+        if not stripped:
             continue
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
         if stripped in capability_names:
             values.append(stripped)
         else:
             values.extend(part.strip() for part in stripped.split(",") if part.strip())
     return values
+
+
+def capability_records_from_names(
+    names: list[str],
+    capability_inventory: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    by_name = {str(capability["name"]).lower(): capability for capability in capability_inventory}
+    records: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for name in names:
+        normalized = name.strip()
+        if not normalized or normalized.lower() in seen:
+            continue
+        seen.add(normalized.lower())
+        records.append(by_name.get(normalized.lower(), {"name": normalized, "status": "story-scoped"}))
+    return records
 
 
 def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]:
@@ -314,14 +332,8 @@ def main() -> int:
     story_risks = section_bullets(enrichment_sections, "Risks")
     workflow_spec = read_text(story_spec_path).strip()
     if story_capability_coverage:
-        explicit = {name.lower(): name for name in story_capability_coverage}
-        covered_capabilities = [capability for capability in capability_inventory if str(capability["name"]).lower() in explicit]
-        deferred_capabilities = [
-            capability
-            for capability in capability_inventory
-            if capability not in covered_capabilities
-            and str(capability.get("status", "")) in {"required", "recommended", "deferred to later epic", "recommended follow-up"}
-        ]
+        covered_capabilities = capability_records_from_names(story_capability_coverage, capability_inventory)
+        deferred_capabilities = []
     else:
         covered_capabilities, deferred_capabilities = infer_story_coverage(
             story_title,
@@ -390,9 +402,6 @@ def main() -> int:
             "",
             "<!-- Migrated workflow story context -->",
             story_enrichment or story_block,
-            "",
-            "<!-- Capability inventory context -->",
-            read_text(workflow_dir / "capabilities.md").strip(),
             "",
         ]
     )

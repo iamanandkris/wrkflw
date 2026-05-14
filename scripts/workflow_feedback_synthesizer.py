@@ -32,8 +32,6 @@ INPUT_FILES = [
     "records/debt.jsonl",
     "execution-path.json",
     "integration-test-gate.json",
-    "verify-fix.json",
-    "records/verify-fix.jsonl",
     "ci-feedback.json",
     "records/ci-feedback.jsonl",
     "merge-gate.json",
