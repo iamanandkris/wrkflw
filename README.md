@@ -17,6 +17,13 @@
 - `wrkflw:openspec-sync`
 - `wrkflw:next`
 - `wrkflw:resume`
+- `wrkflw:actions`
+- `wrkflw:capability-synth`
+- `wrkflw:design-synth`
+- `wrkflw:story-synth`
+- `wrkflw:story-enrichment-synth`
+- `wrkflw:openspec-synth`
+- `wrkflw:implementation-plan-synth`
 - `wrkflw:dag-sync`
 - `wrkflw:execution-path`
 - `wrkflw:feedback-synth`
@@ -53,6 +60,8 @@ It also supports:
 - typed CI feedback records that turn failed checks into focused fix tasks
 - invocation accounting for workflow commands, delegated-agent usage, retries, elapsed time, tokens, known cost, and unknown-cost records
 - phase checkpoints and explicit resume for interrupted workflow commands
+- stage-aware action menus that show the recommended command, alternatives, and a final manual suggestion option
+- AI-assisted synthesis packets that combine planning profile, design artifacts, repo evidence, and deterministic validation before capability, story, OpenSpec, design, and implementation-planning decisions
 - git worktree isolation for active-story implementer lanes and ready parallel DAG-level dispatch packets
 - read-only merge-gate verification for isolated worktree diffs before review approval
 - explicit human-controlled merge-apply for ready parallel worktree branches
@@ -147,6 +156,12 @@ This repo is a Codex plugin plus skill bundle. It does not install as a generic 
 
 - `docs/swe-af-adoption-ideas.md`
   - candidate SWE-AF-inspired features that could strengthen `wrkflw` while preserving its artifact-first, human-gated model
+- `docs/mempalace-integration-proposal.md`
+  - proposal for optional MemPalace-backed recall and report cross-checking for analysis-heavy workflows
+- `docs/wrkflw-lifecycle-timeline.md`
+  - visual timeline of human gates, lifecycle stages, and key workflow artifacts from start to story closeout
+- `docs/wrkflw-lifecycle-deep-map.html`
+  - expanded vertical lifecycle map with SWE-AF-inspired runtime, validation, recovery, and command details
 
 ## Usage
 
@@ -445,6 +460,18 @@ Team control commands:
   - restore the latest resumable checkpoint for this workflow lane and continue the original command from the next phase
   - resume `team-sync-all` from the latest completed result-envelope checkpoint instead of re-ingesting the whole batch
   - refuse to resume after rollback if `.workflow` or `openspec` changed since the failed command baseline
+- `wrkflw:actions`
+  - regenerate `.workflow/<slug>/action-menu.json` and `.workflow/<slug>/action-menu.md`
+  - show the recommended next command, other valid stage-specific commands, material-command warnings, and `None / manual suggestion`
+  - make command choices explicit before non-obvious gates or branch points without advancing workflow state
+- `wrkflw:capability-synth`
+  - regenerate `.workflow/<slug>/capability-synth.md` and `.workflow/<slug>/capability-synth.json`
+  - package the planning profile, design artifacts, current capabilities, and repo evidence into a Codex-ready synthesis packet
+  - regenerate `.workflow/<slug>/capability-synth-validation.md` / `.json` so AI-authored capabilities remain reviewable before approval
+- `wrkflw:design-synth`, `wrkflw:story-synth`, `wrkflw:story-enrichment-synth`, `wrkflw:openspec-synth`, `wrkflw:implementation-plan-synth`
+  - regenerate stage-specific synthesis packets and validation artifacts through the shared synthesis framework
+  - package the planning profile, current workflow artifacts, design/codebase context, and repo evidence into Codex-ready decision packets
+  - keep deterministic validation around AI-authored design analysis, story slices, story enrichment, OpenSpec requirements, and implementation plans
 - `wrkflw:dag-sync`
   - regenerate `.workflow/<slug>/dag.json` and `.workflow/<slug>/dag.md` from story dependencies and current workflow state
   - regenerate `.workflow/<slug>/dag-validation.md`
@@ -547,6 +574,13 @@ wrkflw:assign "Implementer 1: schema and fixtures; Reviewer QA: regression and a
 wrkflw:challenge "role: Reviewer QA; severity: high; finding: acceptance coverage is incomplete"
 wrkflw:review-sync "Reviewer QA and Product Owner evidence recorded"
 wrkflw:resume "Continue the last interrupted workflow command"
+wrkflw:actions "Show recommended and alternative commands for the current stage"
+wrkflw:capability-synth "Synthesize richer capabilities from the planning profile, design, and repo evidence"
+wrkflw:design-synth "Synthesize semantic design/codebase analysis and epic candidates"
+wrkflw:story-synth "Synthesize PR-sized stories from approved capabilities"
+wrkflw:story-enrichment-synth "Synthesize acceptance criteria, tests, risks, and write paths for the active story"
+wrkflw:openspec-synth "Synthesize domain-specific OpenSpec requirements for the active story"
+wrkflw:implementation-plan-synth "Synthesize the first PR slice, ownership, validation, and risk plan"
 wrkflw:dag-sync "Refresh story dependency graph"
 wrkflw:execution-path "Refresh simple vs flagged execution routing"
 wrkflw:feedback-synth "Synthesize role feedback before review approval"
@@ -697,21 +731,35 @@ This is generated automatically from the available design seed and workflow cont
 
 It captures:
 
-- the inferred workflow mode
+- a compatibility workflow mode used by existing scripts
+- a richer planning profile that explains the shape of the work
 - the capability categories the workflow should consider
 - whether each capability is `required`, `recommended`, or `optional`
 - story prompts that can be turned into future slices
 
-Typical workflow modes:
+The planning profile is the primary classification model:
+
+- `Delivery kind`
+  - `product`, `sample`, `harness`, `tool`, `migration`, `research`, `maintenance`, or `general`
+- `Runtime surface`
+  - `frontend`, `backend-api`, `cli`, `mcp-server`, `database`, `infra`, `batch-job`, or `unspecified`
+- `Domain packs`
+  - reusable capability influences such as `database`, `ai-agent`, `game-rules`, `ui-state`, `accessibility`, `security`, `governance`, `observability`, `documentation`, or `workflow-governance`
+- `Assurance level`
+  - `normal`, `high-risk`, `regulated`, or `experimental`
+- `Workflow strategy`
+  - `simple`, `spec-driven`, `parallel-team`, or `spike-first`
+
+Compatibility workflow modes remain in the artifact so older scripts and diagrams keep working:
 
 - `tutorial-sample`
-  - optimize for pedagogy and a clear learning path
 - `feature-harness`
-  - optimize for broader capability coverage and realistic feature comparison
 - `product-service`
-  - optimize for runtime/service behavior and realistic execution paths
+- `sql-server-mcp`
+- `browser-game`
 - `general-delivery`
-  - default mode when no stronger signal exists
+
+Capability categories are composed from the planning profile dimensions directly. The compatibility mode is display and migration metadata; it is not the primary input for capability selection.
 
 The main use of `capabilities.md` is to improve early planning:
 
@@ -723,27 +771,39 @@ The main use of `capabilities.md` is to improve early planning:
 `wrkflw` now uses this file directly when the workflow enters `story-slicing`:
 
 - it regenerates `.workflow/<slug>/stories.md`
-- it groups capabilities differently depending on workflow mode
+- it groups capabilities differently depending on the planning profile
 - it keeps story names and dependencies closer to the intended capability coverage
 
 That means the capability inventory is no longer just review guidance. It is the actual seed for early story generation.
 
 Example outcomes:
 
-- `tutorial-sample`
+- `sample` delivery with the `tutorial-sample` compatibility mode
   - tends to produce narrower learning-path stories such as:
     - core contract usage
     - field validation
     - visibility / field semantics
     - nested structures
     - developer guidance
-- `feature-harness`
+- `harness` delivery with the `feature-harness` compatibility mode
   - tends to produce broader grouped slices such as:
     - core contract surface
     - validation and sanitization coverage
     - update and schema flows
     - runtime integration
     - developer guidance
+- `tool` delivery on an `mcp-server` surface with `database`, `ai-agent`, and `security` domain packs
+  - tends to produce database-tool slices such as:
+    - MCP runtime and stdio transport
+    - database connection configuration
+    - read-only query execution and policy guardrails
+    - schema discovery, result shaping, observability, and agent guidance
+- `product` delivery on a `frontend` surface with `game-rules`, `ui-state`, and `accessibility` domain packs
+  - tends to produce playable vertical slices such as:
+    - board rendering and turn loop
+    - move validation and outcome detection
+    - reset and accessible interaction
+    - static browser packaging and run guidance
 
 If the generated story slices are still too broad or too thin, review and rework `capabilities.md` at the `capability-review` gate before accepting the story plan.
 
@@ -1005,7 +1065,8 @@ If OpenSpec is required but not initialized, `wrkflw` now hard-blocks at `spec-a
 `wrkflw` now also carries capability coverage into the OpenSpec artifacts:
 
 - `proposal.md` includes:
-  - workflow mode
+  - planning profile dimensions
+  - compatibility workflow mode
   - capability categories intentionally covered by the active story
   - required/recommended capabilities that remain deferred
 - `spec.md` includes:

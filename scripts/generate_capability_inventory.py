@@ -5,6 +5,14 @@ import argparse
 import re
 from pathlib import Path
 
+from workflow_profile import (
+    detect_planning_profile,
+    is_browser_game,
+    is_sql_server_mcp,
+    profile_domain_pack_text,
+    profile_domain_packs,
+)
+
 
 GENERATED_MARKER = "<!-- generated-by: wrkflw capability inventory -->"
 PLACEHOLDER_RATIONALE = "No capability inventory has been generated yet."
@@ -18,125 +26,64 @@ def slug_tokens(value: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if token}
 
 
-def first_line_starting(text: str, prefix: str) -> str:
-    for line in text.splitlines():
-        if line.startswith(prefix):
-            return line.split(":", 1)[1].strip()
-    return ""
-
-
-def detect_mode(text: str) -> tuple[str, str]:
-    lowered = text.lower()
-    if is_sql_server_mcp(text):
-        return (
-            "sql-server-mcp",
-            "The seed language describes a read-oriented MCP server that exposes SQL Server capabilities to human or agent clients.",
-        )
-    if any(
-        term in lowered
-        for term in [
-            "spring boot",
-            "modular monolith",
-            "rest endpoints",
-            "api service",
-            "workflow platform",
-            "case management",
-            "production",
-        ]
-    ):
-        return (
-            "product-service",
-            "The seed language describes a runtime-facing backend platform with APIs, lifecycle rules, and operational behavior.",
-        )
-    if any(term in lowered for term in ["harness", "testing service", "compare", "polyglot", "benchmark", "load test"]):
-        return (
-            "feature-harness",
-            "The seed language suggests a richer feature harness rather than a minimal tutorial sample.",
-        )
-    if any(term in lowered for term in ["sample", "tutorial", "guide", "example", "onboarding"]):
-        return (
-            "tutorial-sample",
-            "The seed language suggests a pedagogical sample that should teach features progressively.",
-        )
-    if any(term in lowered for term in ["service", "api", "endpoint", "production"]):
-        return (
-            "product-service",
-            "The seed language suggests a runtime-facing service where workflow stories should cover realistic execution paths.",
-        )
-    return (
-        "general-delivery",
-        "No strong sample or harness signal was detected, so the workflow should treat this as general staged delivery.",
-    )
-
-
 CAPABILITIES = [
     {
         "name": "Core Contract Usage",
         "keywords": ["contract", "derive", "derived", "decoder", "payload"],
-        "modes": {"tutorial-sample": "required", "feature-harness": "required", "product-service": "required"},
         "why": "A sample should show the core shape of the contract model before layering on advanced behavior.",
         "stories": ["Bootstrap one minimal contract example", "Show raw input validation into a typed model"],
     },
     {
         "name": "Field Validation",
         "keywords": ["validation", "@email", "@nonempty", "@positive", "@min", "constraint"],
-        "modes": {"tutorial-sample": "required", "feature-harness": "required", "product-service": "recommended"},
         "why": "Validation annotations and failure behavior are usually one of the first meaningful capabilities a developer expects to see.",
         "stories": ["Add one focused validation example", "Show multiple violations in a single failing payload"],
     },
     {
         "name": "Sanitization And Visibility",
         "keywords": ["sanitize", "@internal", "@masked", "@reserved", "public view", "private view"],
-        "modes": {"tutorial-sample": "recommended", "feature-harness": "required", "product-service": "recommended"},
         "why": "Libraries in this space often distinguish stored/internal fields from public output, so samples should make that explicit.",
         "stories": ["Show how sensitive fields are removed or redacted", "Compare validated internal state to sanitized output"],
     },
     {
         "name": "Nested Structures",
         "keywords": ["nested", "address", "child", "embedded", "subobject", "decoder"],
-        "modes": {"tutorial-sample": "recommended", "feature-harness": "required", "product-service": "required"},
         "why": "Real payloads are rarely flat. Nested structures prove the sample is useful beyond toy fields.",
         "stories": ["Add one nested contract with raw decoding", "Show validation across nested structures"],
     },
     {
         "name": "Lifecycle And Field Semantics",
         "keywords": ["immutable", "reserved", "internal", "masked", "readonly", "lifecycle"],
-        "modes": {"tutorial-sample": "recommended", "feature-harness": "required", "product-service": "recommended"},
         "why": "Field-level semantics often separate a realistic sample from a basic tutorial.",
         "stories": ["Add immutable or reserved field examples", "Document which fields are persisted vs public"],
     },
     {
         "name": "Custom Validators",
         "keywords": ["validator", "business rule", "consistency", "totals", "inventory"],
-        "modes": {"tutorial-sample": "optional", "feature-harness": "recommended", "product-service": "recommended"},
         "why": "Custom validators show where contract annotations stop and domain-specific rules begin.",
         "stories": ["Add one contract-level validator", "Show a failure path for a derived business rule"],
     },
     {
         "name": "Patch And Partial Validation",
         "keywords": ["patch", "partial", "draft", "update", "merge"],
-        "modes": {"tutorial-sample": "optional", "feature-harness": "recommended", "product-service": "required"},
         "why": "If the target is a service or harness, patch and partial flows are often critical to realistic coverage.",
         "stories": ["Add a patch validation example", "Add a draft or partial validation path"],
     },
     {
         "name": "Schema And Introspection",
         "keywords": ["schema", "json schema", "introspection", "metadata"],
-        "modes": {"tutorial-sample": "optional", "feature-harness": "recommended", "product-service": "optional"},
         "why": "Schema generation is a meaningful differentiator if the library supports introspection or downstream integration.",
         "stories": ["Add one schema generation example", "Document how schema output relates to the contract model"],
     },
     {
         "name": "Runtime Integration",
         "keywords": ["service", "api", "endpoint", "http", "controller", "spring"],
-        "modes": {"tutorial-sample": "optional", "feature-harness": "recommended", "product-service": "required"},
         "why": "Some workflows need a true service boundary, not just isolated tests. This is where realistic execution enters the sample.",
         "stories": ["Wrap the contract flow in one runtime entry point", "Show how validated raw data moves through the service"],
     },
     {
         "name": "Developer Guidance",
         "keywords": ["guide", "readme", "docs", "onboarding", "explain"],
-        "modes": {"tutorial-sample": "required", "feature-harness": "recommended", "product-service": "recommended"},
         "why": "Without explicit guidance, even a good sample can feel opaque.",
         "stories": ["Add a README that explains each capability slice", "Explain how to run and extend the sample"],
     },
@@ -147,58 +94,130 @@ SQL_SERVER_MCP_CAPABILITIES = [
     {
         "name": "MCP Runtime And Stdio Transport",
         "keywords": ["mcp", "model context protocol", "stdio", "server", "tool"],
-        "modes": {"sql-server-mcp": "required"},
         "why": "A usable v1 needs a working MCP process, transport lifecycle, tool registration, and predictable request/response behavior before database features can be exposed.",
         "stories": ["Create the TypeScript MCP stdio server skeleton", "Register the initial SQL Server tools with stable names and schemas"],
     },
     {
         "name": "SQL Server Connection Configuration",
         "keywords": ["sql server", "mssql", "connection", "connection string", "authentication", "encrypt", "trustservercertificate"],
-        "modes": {"sql-server-mcp": "required"},
         "why": "The server must connect to SQL Server without hard-coding credentials and must surface configuration failures clearly for local and agentic setups.",
         "stories": ["Load SQL Server connection settings from environment or config", "Validate connection configuration before tools attempt database work"],
     },
     {
         "name": "Read-Only Query Execution",
         "keywords": ["read-only", "readonly", "select", "query", "execute", "row limit", "timeout"],
-        "modes": {"sql-server-mcp": "required"},
         "why": "The approved v1 scope is read-only, so query execution needs an intentionally narrow surface that can answer questions without mutating data.",
         "stories": ["Execute parameterized read-only SELECT queries", "Apply timeout and row-limit controls to result-producing queries"],
     },
     {
         "name": "Schema Discovery And Introspection",
         "keywords": ["schema", "table", "column", "catalog", "metadata", "introspection", "describe"],
-        "modes": {"sql-server-mcp": "required"},
         "why": "Agents need schema context before they can ask useful questions or construct safe SQL.",
         "stories": ["Expose database, schema, table, and column discovery tools", "Return compact metadata that agents can consume without excessive token cost"],
     },
     {
         "name": "Safety Guardrails And Policy Enforcement",
         "keywords": ["write", "admin", "ddl", "dml", "delete", "update", "insert", "drop", "guardrail", "policy"],
-        "modes": {"sql-server-mcp": "required"},
         "why": "A database-facing MCP server needs explicit enforcement that v1 cannot perform writes or administrative operations.",
         "stories": ["Reject mutating or administrative SQL before execution", "Document the supported read-only command envelope and known exclusions"],
     },
     {
         "name": "Result Shaping And Error Reporting",
         "keywords": ["result", "rows", "json", "error", "diagnostic", "message", "format"],
-        "modes": {"sql-server-mcp": "recommended"},
         "why": "Human and machine clients both need predictable result envelopes and errors that are specific enough to recover from.",
         "stories": ["Return stable JSON result envelopes for rows and metadata", "Map SQL Server and validation failures into clear MCP errors"],
     },
     {
         "name": "Observability And Operational Limits",
         "keywords": ["logging", "telemetry", "pool", "cancellation", "limit", "timeout", "observability"],
-        "modes": {"sql-server-mcp": "recommended"},
         "why": "Database tools can create expensive work quickly, so v1 should expose enough logging and limits to diagnose failures without leaking sensitive data.",
         "stories": ["Add safe operational logging around tool calls and failures", "Centralize timeout, row-limit, and connection-pool defaults"],
     },
     {
         "name": "Agent Usability Documentation",
         "keywords": ["agent", "human", "docs", "readme", "examples", "client", "setup"],
-        "modes": {"sql-server-mcp": "recommended"},
         "why": "The server is meant for agentic setups, so the first release needs clear install, configuration, and client usage guidance.",
         "stories": ["Document stdio client configuration and required environment variables", "Provide example prompts and tool usage patterns for safe database exploration"],
+    },
+]
+
+
+GAME_CAPABILITIES = [
+    {
+        "name": "Board Rendering And Layout",
+        "keywords": ["board", "grid", "3x3", "cell", "screen", "layout"],
+        "why": "A playable browser game needs a visible, stable play surface before rules and interactions can be verified.",
+        "stories": ["Render the game board with stable cell sizing", "Show empty, occupied, and completed board states clearly"],
+    },
+    {
+        "name": "Turn Management",
+        "keywords": ["turn", "alternate", "player", "x", "o"],
+        "why": "Turn order is part of the core game contract and must be explicit for human players and tests.",
+        "stories": ["Alternate X and O after valid moves", "Show the current player before each move"],
+    },
+    {
+        "name": "Move Validation",
+        "keywords": ["occupied", "invalid", "prevent", "move", "cell"],
+        "why": "The game must reject invalid moves so state cannot become impossible or ambiguous.",
+        "stories": ["Prevent moves into occupied cells", "Keep turn state unchanged after invalid moves"],
+    },
+    {
+        "name": "Win And Draw Detection",
+        "keywords": ["win", "winner", "row", "column", "diagonal", "draw", "full board"],
+        "why": "Outcome detection is the main rule boundary for a complete tic-tac-toe style game.",
+        "stories": ["Detect row, column, and diagonal wins", "Detect a draw when the board fills without a winner"],
+    },
+    {
+        "name": "Reset And Replay Flow",
+        "keywords": ["reset", "restart", "replay", "new game"],
+        "why": "A finished or mistaken game needs a clear way back to a fresh playable state.",
+        "stories": ["Add a reset control that clears board state", "Restore the initial player and status message on reset"],
+    },
+    {
+        "name": "Browser Interaction And Accessibility",
+        "keywords": ["keyboard", "accessible", "aria", "focus", "button", "status"],
+        "why": "A browser game should be operable and understandable through standard controls, not only mouse clicks.",
+        "stories": ["Make board cells keyboard-operable controls", "Expose current status and outcomes in accessible text"],
+    },
+    {
+        "name": "Static App Packaging And Documentation",
+        "keywords": ["index.html", "html", "css", "javascript", "readme", "browser", "static"],
+        "why": "The output should be easy to run locally and inspect without hidden build or backend assumptions.",
+        "stories": ["Create the static browser files needed to run the game", "Document how to open, play, and validate the game"],
+    },
+]
+
+
+GENERAL_DELIVERY_CAPABILITIES = [
+    {
+        "name": "Scope And Workflow Boundaries",
+        "keywords": ["scope", "goal", "non-goal", "constraint", "boundary"],
+        "why": "When no specialized domain pack dominates, the workflow still needs clear boundaries before story slicing.",
+        "stories": ["Clarify the first useful delivery slice", "Record explicit non-goals and constraints"],
+    },
+    {
+        "name": "Core User Workflow",
+        "keywords": ["user", "workflow", "flow", "journey", "use case"],
+        "why": "Most work needs at least one concrete path that proves the delivered change is useful.",
+        "stories": ["Implement the primary user or operator path", "Show the expected happy path end to end"],
+    },
+    {
+        "name": "Validation And Error Handling",
+        "keywords": ["validation", "error", "failure", "invalid", "edge case"],
+        "why": "A coherent slice should define how invalid input or expected failures are handled.",
+        "stories": ["Add validation for the main input boundary", "Document or test the main failure path"],
+    },
+    {
+        "name": "Testing And Verification",
+        "keywords": ["test", "verify", "validation", "acceptance", "regression"],
+        "why": "The workflow needs a visible proof point before the implementation can be reviewed safely.",
+        "stories": ["Add focused acceptance or regression tests", "Document manual verification steps when automation is not practical"],
+    },
+    {
+        "name": "Documentation And Run Guidance",
+        "keywords": ["readme", "docs", "run", "setup", "guide"],
+        "why": "Future agents and humans need enough run context to continue the work without re-discovering basics.",
+        "stories": ["Document setup and run commands", "Capture known limitations and follow-up work"],
     },
 ]
 
@@ -283,15 +302,6 @@ SERVICE_CAPABILITY_WORKFLOW_HINTS = {
 GENERIC_CAPABILITY_NAMES = {str(capability["name"]) for capability in CAPABILITIES}
 
 
-def is_sql_server_mcp(text: str) -> bool:
-    lowered = text.lower()
-    mcp_signals = ["mcp", "model context protocol"]
-    sql_server_signals = ["sql server", "mssql", "ms sql", "t-sql", "tsql", "database"]
-    return any(signal in lowered for signal in mcp_signals) and any(
-        signal in lowered for signal in sql_server_signals
-    )
-
-
 def has_generic_inventory_categories(text: str) -> bool:
     headings = set(re.findall(r"^###\s+(.+?)\s*$", text, flags=re.MULTILINE))
     if len(headings & GENERIC_CAPABILITY_NAMES) >= 2:
@@ -310,22 +320,22 @@ def should_preserve_existing_inventory(path: Path, seed_text: str) -> bool:
         return False
     if PLACEHOLDER_RATIONALE in existing:
         return False
-    if is_sql_server_mcp(seed_text) and has_generic_inventory_categories(existing):
+    if (is_sql_server_mcp(seed_text) or is_browser_game(seed_text)) and has_generic_inventory_categories(existing):
         return False
     return True
 
 
-def capability_status(capability: dict[str, object], mode: str, text: str) -> tuple[str, str]:
+def capability_status(capability: dict[str, object], text: str) -> tuple[str, str]:
     lowered = text.lower()
     keywords = capability["keywords"]  # type: ignore[assignment]
     if any(keyword in lowered for keyword in keywords):
         return "required", "The design/context already mentions this capability explicitly."
-    modes = capability["modes"]  # type: ignore[assignment]
-    status = modes.get(mode, "optional")
+    status = str(capability.get("profile_status", "optional"))
+    driver = str(capability.get("profile_driver", "the planning profile"))
     if status == "required":
-        return status, f"This capability is typically essential in {mode} mode."
+        return status, f"This capability is essential for {driver}."
     if status == "recommended":
-        return status, f"This capability is usually expected in {mode} mode even if not stated explicitly."
+        return status, f"This capability is usually expected for {driver} even if not stated explicitly."
     return status, "This capability is useful but not necessarily needed in the first version."
 
 
@@ -394,16 +404,179 @@ def service_capability_status(
     return "recommended", owner or workflow_slug, "This capability is adjacent to the current epic and can be staged behind the first required slice."
 
 
-def format_inventory(mode: str, rationale: str, text: str, workflow_slug: str, workflow_statuses: dict[str, str]) -> str:
+def capability_with_profile_driver(
+    capability: dict[str, object],
+    status: str,
+    driver: str,
+) -> dict[str, object]:
+    enriched = dict(capability)
+    enriched["profile_status"] = status
+    enriched["profile_driver"] = driver
+    return enriched
+
+
+def add_profile_capabilities(
+    selected: list[dict[str, object]],
+    capabilities: list[dict[str, object]],
+    statuses: dict[str, str],
+    default_status: str,
+    driver: str,
+) -> None:
+    existing = {str(capability["name"]) for capability in selected}
+    for capability in capabilities:
+        name = str(capability["name"])
+        if name in existing:
+            continue
+        selected.append(
+            capability_with_profile_driver(
+                capability,
+                statuses.get(name, default_status),
+                driver,
+            )
+        )
+        existing.add(name)
+
+
+def contract_capability_statuses(delivery_kind: str) -> dict[str, str]:
+    if delivery_kind == "harness":
+        return {
+            "Core Contract Usage": "required",
+            "Field Validation": "required",
+            "Sanitization And Visibility": "required",
+            "Nested Structures": "required",
+            "Lifecycle And Field Semantics": "required",
+            "Custom Validators": "recommended",
+            "Patch And Partial Validation": "recommended",
+            "Schema And Introspection": "recommended",
+            "Runtime Integration": "recommended",
+            "Developer Guidance": "recommended",
+        }
+    if delivery_kind == "sample":
+        return {
+            "Core Contract Usage": "required",
+            "Field Validation": "required",
+            "Developer Guidance": "required",
+            "Sanitization And Visibility": "recommended",
+            "Nested Structures": "recommended",
+            "Lifecycle And Field Semantics": "recommended",
+        }
+    return {
+        "Core Contract Usage": "required",
+        "Field Validation": "required",
+        "Nested Structures": "recommended",
+        "Lifecycle And Field Semantics": "recommended",
+        "Schema And Introspection": "recommended",
+        "Developer Guidance": "recommended",
+    }
+
+
+def capabilities_for_profile(profile: dict[str, object], text: str) -> list[dict[str, object]]:
+    delivery_kind = str(profile.get("delivery_kind", "general"))
+    runtime_surface = str(profile.get("runtime_surface", "unspecified"))
+    assurance_level = str(profile.get("assurance_level", "normal"))
+    workflow_strategy = str(profile.get("workflow_strategy", "simple"))
+    domain_packs = set(profile_domain_packs(profile))
+    selected: list[dict[str, object]] = []
+
+    if runtime_surface == "mcp-server" and "database" in domain_packs:
+        add_profile_capabilities(
+            selected,
+            SQL_SERVER_MCP_CAPABILITIES,
+            {
+                "MCP Runtime And Stdio Transport": "required",
+                "SQL Server Connection Configuration": "required",
+                "Read-Only Query Execution": "required",
+                "Schema Discovery And Introspection": "required",
+                "Safety Guardrails And Policy Enforcement": "required",
+                "Result Shaping And Error Reporting": "recommended",
+                "Observability And Operational Limits": "recommended",
+                "Agent Usability Documentation": "recommended",
+            },
+            "recommended",
+            "runtime surface `mcp-server` with the `database` domain pack",
+        )
+
+    if runtime_surface == "frontend" and "game-rules" in domain_packs:
+        add_profile_capabilities(
+            selected,
+            GAME_CAPABILITIES,
+            {
+                "Board Rendering And Layout": "required",
+                "Turn Management": "required",
+                "Move Validation": "required",
+                "Win And Draw Detection": "required",
+                "Reset And Replay Flow": "required",
+                "Browser Interaction And Accessibility": "recommended",
+                "Static App Packaging And Documentation": "required",
+            },
+            "recommended",
+            "runtime surface `frontend` with the `game-rules` domain pack",
+        )
+
+    if "workflow-governance" in domain_packs or (
+        runtime_surface == "backend-api" and is_caseflow_service(text)
+    ):
+        add_profile_capabilities(
+            selected,
+            SERVICE_CAPABILITIES,
+            {},
+            "recommended",
+            "workflow-governance domain behavior",
+        )
+
+    if "contract-model" in domain_packs or delivery_kind in {"sample", "harness"}:
+        add_profile_capabilities(
+            selected,
+            CAPABILITIES,
+            contract_capability_statuses(delivery_kind),
+            "optional",
+            f"delivery kind `{delivery_kind}` with contract-model capability needs",
+        )
+
+    if not selected:
+        add_profile_capabilities(
+            selected,
+            GENERAL_DELIVERY_CAPABILITIES,
+            {
+                "Scope And Workflow Boundaries": "required",
+                "Core User Workflow": "required",
+                "Validation And Error Handling": "recommended",
+                "Testing And Verification": "recommended",
+                "Documentation And Run Guidance": "recommended",
+            },
+            "recommended",
+            f"delivery kind `{delivery_kind}`, runtime surface `{runtime_surface}`, assurance `{assurance_level}`, strategy `{workflow_strategy}`",
+        )
+
+    return selected
+
+
+def format_inventory(
+    mode: str,
+    rationale: str,
+    text: str,
+    workflow_slug: str,
+    workflow_statuses: dict[str, str],
+    profile: dict[str, object] | None = None,
+) -> str:
+    profile = profile or detect_planning_profile(text)
     lines = [
         "# Capability Inventory",
         "",
         GENERATED_MARKER,
         "",
-        "## Workflow Mode",
+        "## Compatibility Workflow Mode",
         "",
         f"- Mode: {mode}",
         f"- Rationale: {rationale}",
+        "",
+        "## Planning Profile",
+        "",
+        f"- Delivery kind: {profile.get('delivery_kind', 'general')}",
+        f"- Runtime surface: {profile.get('runtime_surface', 'unspecified')}",
+        f"- Domain packs: {profile_domain_pack_text(profile)}",
+        f"- Assurance level: {profile.get('assurance_level', 'normal')}",
+        f"- Workflow strategy: {profile.get('workflow_strategy', 'simple')}",
         "",
         "## Coverage Guidance",
         "",
@@ -416,17 +589,13 @@ def format_inventory(mode: str, rationale: str, text: str, workflow_slug: str, w
         "",
     ]
 
-    capabilities = CAPABILITIES
-    if mode == "sql-server-mcp":
-        capabilities = SQL_SERVER_MCP_CAPABILITIES
-    elif mode == "product-service" and is_caseflow_service(text):
-        capabilities = SERVICE_CAPABILITIES
+    capabilities = capabilities_for_profile(profile, text)
 
     for capability in capabilities:
-        if capabilities is SERVICE_CAPABILITIES:
+        if str(capability["name"]) in {str(item["name"]) for item in SERVICE_CAPABILITIES}:
             status, owner, why_now = service_capability_status(capability, workflow_slug, workflow_statuses, text)
         else:
-            status, why_now = capability_status(capability, mode, text)
+            status, why_now = capability_status(capability, text)
             owner = workflow_slug
         lines.extend(
             [
@@ -463,9 +632,11 @@ def main() -> int:
     output_path = wf / "capabilities.md"
     if not args.force and should_preserve_existing_inventory(output_path, combined):
         return 0
-    mode, rationale = detect_mode(combined)
+    profile = detect_planning_profile(combined)
+    mode = str(profile["mode"])
+    rationale = str(profile["rationale"])
     workflow_statuses = parse_initiative_index(root / ".workflow" / "initiative-index.md")
-    inventory = format_inventory(mode, rationale, combined, args.slug, workflow_statuses)
+    inventory = format_inventory(mode, rationale, combined, args.slug, workflow_statuses, profile)
     output_path.write_text(inventory, encoding="utf-8")
     return 0
 

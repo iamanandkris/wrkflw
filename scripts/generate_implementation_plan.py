@@ -317,21 +317,57 @@ def build_scope_drift(root: Path, story: dict[str, list[str] | str]) -> list[str
     return sorted(dict.fromkeys(drift))
 
 
-def first_pr_slice(scope: str, acceptance: list[str], tests: list[str]) -> tuple[list[str], list[str]]:
+LATER_SLICE_MARKERS = (
+    "[later]",
+    "[later-slice]",
+    "[later slice]",
+    "[defer]",
+    "[deferred]",
+    "later slice:",
+    "later:",
+    "deferred:",
+    "follow-up:",
+    "future:",
+)
+
+
+def is_explicit_later_slice(item: str) -> bool:
+    lowered = item.strip().lower()
+    return any(lowered.startswith(marker) for marker in LATER_SLICE_MARKERS)
+
+
+def strip_later_slice_marker(item: str) -> str:
+    stripped = item.strip()
+    lowered = stripped.lower()
+    for marker in LATER_SLICE_MARKERS:
+        if lowered.startswith(marker):
+            return stripped[len(marker):].strip()
+    return stripped
+
+
+def first_pr_slice(
+    scope: str,
+    acceptance: list[str],
+    tests: list[str],
+    *,
+    high_risk_or_interface: bool = False,
+) -> tuple[list[str], list[str]]:
     included: list[str] = []
     scope = scope.strip()
     if scope:
         included.append(f"Implementation: {scope}")
 
-    acceptance_included = first_n(acceptance, 2)
-    test_included = first_n(tests, 2)
+    acceptance_included = [item for item in acceptance if not is_explicit_later_slice(item)]
+    acceptance_deferred = [strip_later_slice_marker(item) for item in acceptance if is_explicit_later_slice(item)]
+    test_included = tests if high_risk_or_interface else first_n(tests, 2)
     included.extend(f"Acceptance: {item}" for item in acceptance_included)
     included.extend(f"Test: {item}" for item in test_included)
 
     if not included:
         included.append("Implementation: define and land the smallest reviewable behavior for the active story.")
 
-    deferred = remaining(acceptance, len(acceptance_included)) + remaining(tests, len(test_included))
+    deferred = [f"Acceptance (explicit later slice): {item}" for item in acceptance_deferred]
+    deferred.extend(f"Test: {item}" for item in remaining(tests, len(test_included)))
     return included, deferred
 
 
@@ -386,7 +422,13 @@ def main() -> int:
     build_drift = build_scope_drift(root, story)
     validation_scripts = validation_script_summary(root)
 
-    included, deferred = first_pr_slice(scope, acceptance, tests)
+    high_risk_or_interface = (
+        str(dag_node.get("risk") or "").strip().lower() == "high"
+        or bool(dag_node.get("needs_deeper_qa"))
+        or str(execution_path.get("path") or "").strip().lower() == "flagged"
+        or bool(planner_metadata.get("touches_interfaces"))
+    )
+    included, deferred = first_pr_slice(scope, acceptance, tests, high_risk_or_interface=high_risk_or_interface)
     slots = implementation_slots(team)
     workstreams = distribute_items(included or [scope], slots)
 
@@ -476,7 +518,11 @@ def main() -> int:
     lines.extend([
         "",
         "## Recommended First PR Slice",
-        "Take the first focused, demonstrable subset of the story that can land safely without pulling in broader cleanup or later-story work.",
+        (
+            "Take the full acceptance-bearing slice for this high-risk/interface story; only criteria explicitly marked as later-slice work may be deferred."
+            if high_risk_or_interface
+            else "Take the first focused, demonstrable subset of the story while keeping acceptance criteria in scope unless they are explicitly marked as later-slice work."
+        ),
         "",
         "## Included In PR 1",
     ])
@@ -514,7 +560,7 @@ def main() -> int:
         for item in deferred:
             lines.append(f"- {item}")
     else:
-        lines.append("- Additional scope beyond the first focused slice.")
+        lines.append("- Additional scope beyond the first focused slice, or acceptance criteria explicitly marked as later-slice work.")
 
     lines.extend([
         "",

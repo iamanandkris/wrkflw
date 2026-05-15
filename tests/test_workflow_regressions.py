@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -19,8 +20,12 @@ from workflow_feedback_synthesizer import feedback_synthesis_block, run_feedback
 import generate_capability_inventory
 import generate_implementation_plan
 import generate_story_slices
+import generate_workflow_diagram
+import workflow_capability_synth
+import workflow_stage_synth
 import bridge_workflow_to_openspec
 import handle_workflow_command
+import workflow_profile
 
 
 class WorkflowRegressionTests(unittest.TestCase):
@@ -35,6 +40,281 @@ class WorkflowRegressionTests(unittest.TestCase):
             argv.extend(["--reason", reason])
         with mock.patch.object(sys, "argv", argv):
             return handle_workflow_command.main()
+
+    def write_workflow_state(
+        self,
+        root: Path,
+        stage: str,
+        gate: str = "pending",
+        active_items: str = "Story 1",
+        blocked_reason: str = "",
+        next_action: str = "",
+        slug: str = "demo",
+    ) -> Path:
+        workflow = root / ".workflow" / slug
+        workflow.mkdir(parents=True, exist_ok=True)
+        fields = {
+            "Current stage": stage,
+            "Human gate status": gate,
+            "Blocked reason": blocked_reason,
+            "Rework target": "",
+            "Rejection reason": "",
+            "Approval note": "",
+            "Active items": active_items,
+            "Deferred items": "",
+            "Item note": "",
+            "Challenge note": "",
+            "Next action": next_action,
+        }
+        lines = ["# State", ""]
+        lines.extend(f"- {key}: {value}" for key, value in fields.items())
+        lines.append("")
+        (workflow / "state.md").write_text("\n".join(lines), encoding="utf-8")
+        return workflow
+
+    def test_actions_generates_review_menu_with_manual_option(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-actions-review-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(root, "review", next_action="review PR outcome and approve or reject")
+
+            self.assertEqual(self.run_workflow_command(root, "actions"), 0)
+
+            payload = json.loads((workflow / "action-menu.json").read_text(encoding="utf-8"))
+            commands = [item.get("command") for item in payload["options"]]
+            labels = [item.get("label") for item in payload["options"]]
+
+        self.assertEqual(payload["current_stage"], "review")
+        self.assertEqual(payload["recommended"]["command"], "wrkflw:feedback-synth")
+        self.assertIn("wrkflw:review-sync \"...\"", commands)
+        self.assertIn("wrkflw:challenge \"...\"", commands)
+        self.assertIn("wrkflw:verify-fix \"...\"", commands)
+        self.assertIn("wrkflw:issue-advisor", commands)
+        self.assertIn("None / manual suggestion", labels)
+
+    def test_actions_marks_material_team_run_options(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-actions-plan-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(
+                root,
+                "implementation-planning",
+                next_action="choose the next PR-sized slice",
+            )
+
+            self.assertEqual(self.run_workflow_command(root, "actions"), 0)
+
+            payload = json.loads((workflow / "action-menu.json").read_text(encoding="utf-8"))
+            team_run = next(item for item in payload["options"] if item.get("command") == "wrkflw:team-run \"...\"")
+            team_run_level = next(item for item in payload["options"] if item.get("command") == "wrkflw:team-run-level \"...\"")
+            markdown = (workflow / "action-menu.md").read_text(encoding="utf-8")
+
+        self.assertEqual(payload["recommended"]["command"], "wrkflw:execution-path")
+        self.assertTrue(team_run["material"])
+        self.assertTrue(team_run["requires_explicit_selection"])
+        self.assertTrue(team_run_level["material"])
+        self.assertIn("None / manual suggestion", markdown)
+        self.assertIn("Material commands should not run silently", markdown)
+
+    def test_actions_include_capability_synthesis_at_capability_review(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-actions-capability-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(
+                root,
+                "capability-review",
+                next_action="review capability inventory",
+            )
+
+            self.assertEqual(self.run_workflow_command(root, "actions"), 0)
+
+            payload = json.loads((workflow / "action-menu.json").read_text(encoding="utf-8"))
+            commands = [item.get("command") for item in payload["options"]]
+            markdown = (workflow / "action-menu.md").read_text(encoding="utf-8")
+
+        self.assertIn("wrkflw:capability-synth \"...\"", commands)
+        self.assertIn("Synthesize rich capabilities", markdown)
+
+    def test_capability_synth_generates_codex_packet_and_validation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-capability-synth-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "tic-tac-toe"
+            workflow.mkdir(parents=True)
+            (workflow / "context.md").write_text(
+                "- Problem: Build a browser-playable tic-tac-toe game.\n"
+                "- Goal: 3x3 board, two local players, invalid click prevention, win/draw detection, reset.\n",
+                encoding="utf-8",
+            )
+            (workflow / "capabilities.md").write_text(
+                generate_capability_inventory.format_inventory(
+                    mode="general-delivery",
+                    rationale="Compatibility mode is not the capability source.",
+                    text="Build a browser game with a 3x3 board, turns, invalid clicks, wins, draws, reset, and keyboard support.",
+                    workflow_slug="tic-tac-toe",
+                    workflow_statuses={},
+                    profile={
+                        "mode": "general-delivery",
+                        "rationale": "Compatibility mode is not the capability source.",
+                        "delivery_kind": "product",
+                        "runtime_surface": "frontend",
+                        "domain_packs": ["game-rules", "ui-state", "accessibility"],
+                        "assurance_level": "normal",
+                        "workflow_strategy": "simple",
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(workflow_capability_synth, root, slug="tic-tac-toe"), 0)
+
+            payload = json.loads((workflow / "capability-synth.json").read_text(encoding="utf-8"))
+            packet = (workflow / "capability-synth.md").read_text(encoding="utf-8")
+            validation = json.loads((workflow / "capability-synth-validation.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["planning_profile"]["runtime_surface"], "frontend")
+        self.assertIn("game-rules", payload["planning_profile"]["domain_packs"])
+        self.assertIn("Codex Capability Synthesis Task", packet)
+        self.assertIn("Do not merely map the compatibility mode to a fixed list", packet)
+        self.assertEqual(validation["status"], "pass")
+        self.assertGreaterEqual(validation["capability_count"], 5)
+
+    def test_capability_synth_command_keeps_gate_and_writes_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-capability-synth-command-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(
+                root,
+                "capability-review",
+                next_action="review capabilities",
+                slug="tic-tac-toe",
+            )
+            (workflow / "context.md").write_text(
+                "- Problem: Build a browser-playable tic-tac-toe game with board, turns, wins, draw, reset.\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_workflow_command(root, "capability-synth", "Improve capability inventory", slug="tic-tac-toe"), 0)
+
+            state = (workflow / "state.md").read_text(encoding="utf-8")
+            packet = (workflow / "capability-synth.md").read_text(encoding="utf-8")
+
+        self.assertIn("- Current stage: capability-review", state)
+        self.assertIn("capability synthesis packet refreshed", state)
+        self.assertIn("Codex Capability Synthesis Task", packet)
+
+    def test_story_synth_uses_shared_synthesis_framework(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-story-synth-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(
+                root,
+                "story-slicing",
+                active_items="Story 1",
+                next_action="review story slices",
+                slug="tic-tac-toe",
+            )
+            (workflow / "context.md").write_text(
+                "- Problem: Build a browser-playable tic-tac-toe game.\n",
+                encoding="utf-8",
+            )
+            (workflow / "capabilities.md").write_text(
+                "# Capability Inventory\n\n"
+                "## Planning Profile\n\n"
+                "- Delivery kind: product\n"
+                "- Runtime surface: frontend\n"
+                "- Domain packs: game-rules, ui-state\n"
+                "- Assurance level: normal\n"
+                "- Workflow strategy: simple\n\n"
+                "### Board Rendering And Layout\n"
+                "- Status: required\n"
+                "- Owning workflow: tic-tac-toe\n"
+                "- Why: A visible board is required.\n"
+                "- Why now: The design asks for a playable 3x3 board.\n"
+                "- Evidence:\n"
+                "  - design: 3x3 board\n"
+                "- Story prompts:\n"
+                "  - Render the board\n",
+                encoding="utf-8",
+            )
+
+            payload = workflow_stage_synth.run_stage_synth(root, "tic-tac-toe", "story-slicing", "Create story slices")
+
+            packet = (workflow / "story-synth.md").read_text(encoding="utf-8")
+            validation = json.loads((workflow / "story-synth-validation.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["synthesis_kind"], "story-slicing")
+        self.assertEqual(payload["artifact_stem"], "story-synth")
+        self.assertIn("Codex Story Slicing Synthesis Task", packet)
+        self.assertIn("Avoid fixed template grouping", packet)
+        self.assertEqual(validation["status"], "pass")
+
+    def test_stage_synth_command_writes_packet_and_preserves_gate(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-stage-synth-command-") as tmp:
+            root = Path(tmp)
+            workflow = self.write_workflow_state(
+                root,
+                "implementation-planning",
+                active_items="Story 1",
+                next_action="review implementation plan",
+            )
+            (workflow / "story-1.md").write_text(
+                "# Story 1\n\n## Acceptance Criteria\n- The board renders.\n",
+                encoding="utf-8",
+            )
+            (workflow / "dag.json").write_text('{"nodes":[]}\n', encoding="utf-8")
+
+            self.assertEqual(self.run_workflow_command(root, "implementation-plan-synth", "Improve PR slicing"), 0)
+
+            state = (workflow / "state.md").read_text(encoding="utf-8")
+            packet = (workflow / "implementation-plan-synth.md").read_text(encoding="utf-8")
+
+        self.assertIn("- Current stage: implementation-planning", state)
+        self.assertIn("Implementation Plan Synthesis Packet refreshed", state)
+        self.assertIn("Codex Implementation Plan Synthesis Task", packet)
+
+    def test_actions_include_stage_synthesis_options(self) -> None:
+        cases = [
+            ("discuss", "wrkflw:design-synth \"...\""),
+            ("story-slicing", "wrkflw:story-synth \"...\""),
+            ("story-enrichment", "wrkflw:story-enrichment-synth \"...\""),
+            ("spec-authoring", "wrkflw:openspec-synth \"...\""),
+            ("implementation-planning", "wrkflw:implementation-plan-synth \"...\""),
+        ]
+        for stage, command in cases:
+            with self.subTest(stage=stage):
+                with tempfile.TemporaryDirectory(prefix=f"wrkflw-actions-{stage}-") as tmp:
+                    root = Path(tmp)
+                    workflow = self.write_workflow_state(root, stage, next_action="review")
+
+                    self.assertEqual(self.run_workflow_command(root, "actions"), 0)
+
+                    payload = json.loads((workflow / "action-menu.json").read_text(encoding="utf-8"))
+                    commands = [item.get("command") for item in payload["options"]]
+
+                self.assertIn(command, commands)
+
+    def test_planning_profile_gives_tool_precedence_over_example_wording(self) -> None:
+        profile = workflow_profile.detect_planning_profile(
+            "Build an example MCP server for SQL Server database queries from human and agent clients."
+        )
+
+        self.assertEqual(profile["mode"], "sql-server-mcp")
+        self.assertEqual(profile["delivery_kind"], "tool")
+        self.assertEqual(profile["runtime_surface"], "mcp-server")
+        self.assertNotEqual(profile["delivery_kind"], "sample")
+
+    def test_planning_profile_does_not_treat_click_as_cli_or_epic_as_parallel_team(self) -> None:
+        profile = workflow_profile.detect_planning_profile(
+            "\n".join(
+                [
+                    "Build a browser-playable tic-tac-toe game.",
+                    "Manual browser test: invalid occupied-cell click and reset.",
+                    "Selected epic slug: tic-tac-toe-game-design.",
+                ]
+            )
+        )
+
+        self.assertEqual(profile["mode"], "browser-game")
+        self.assertEqual(profile["delivery_kind"], "product")
+        self.assertEqual(profile["runtime_surface"], "frontend")
+        self.assertEqual(profile["workflow_strategy"], "simple")
+        self.assertNotEqual(profile["runtime_surface"], "cli")
+        self.assertNotEqual(profile["workflow_strategy"], "parallel-team")
 
     def test_redact_output_removes_auth_secret_values(self) -> None:
         redacted = redact_output(
@@ -129,6 +409,11 @@ class WorkflowRegressionTests(unittest.TestCase):
             inventory = (workflow / "capabilities.md").read_text(encoding="utf-8")
             self.assertIn("<!-- generated-by: wrkflw capability inventory -->", inventory)
             self.assertIn("- Mode: sql-server-mcp", inventory)
+            self.assertIn("- Delivery kind: tool", inventory)
+            self.assertIn("- Runtime surface: mcp-server", inventory)
+            self.assertIn("- Domain packs: database, ai-agent", inventory)
+            self.assertIn("- Assurance level: high-risk", inventory)
+            self.assertIn("- Workflow strategy: spec-driven", inventory)
             self.assertIn("### MCP Runtime And Stdio Transport", inventory)
             self.assertIn("### Read-Only Query Execution", inventory)
             self.assertNotIn("### Core Contract Usage", inventory)
@@ -184,6 +469,84 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertIn("## Story 1: Bootstrap MCP Stdio Runtime And Connection Config", stories)
             self.assertIn("Covers: MCP Runtime And Stdio Transport, SQL Server Connection Configuration", stories)
             self.assertNotIn("Core Contract Usage", stories)
+
+    def test_browser_game_inventory_and_stories_use_game_specific_groups(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-browser-game-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "tic-tac-toe"
+            workflow.mkdir(parents=True)
+            (workflow / "design-seed.md").write_text(
+                "\n".join(
+                    [
+                        "# Tic-Tac-Toe Game Design Seed",
+                        "",
+                        "Build a static browser tic-tac-toe game that opens from index.html.",
+                        "The game needs a 3x3 board, X/O turn alternation, occupied-cell move prevention,",
+                        "row, column, and diagonal win detection, draw detection, a reset button,",
+                        "keyboard accessible cells, and a README explaining how to run it.",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(generate_capability_inventory, root, slug="tic-tac-toe"), 0)
+            self.assertEqual(self.run_script_main(generate_story_slices, root, slug="tic-tac-toe"), 0)
+
+            inventory = (workflow / "capabilities.md").read_text(encoding="utf-8")
+            self.assertIn("- Mode: browser-game", inventory)
+            self.assertIn("- Delivery kind: product", inventory)
+            self.assertIn("- Runtime surface: frontend", inventory)
+            self.assertIn("- Domain packs: game-rules, ui-state, accessibility, documentation", inventory)
+            self.assertIn("- Assurance level: normal", inventory)
+            self.assertIn("- Workflow strategy: simple", inventory)
+            self.assertIn("### Board Rendering And Layout", inventory)
+            self.assertIn("### Turn Management", inventory)
+            self.assertIn("### Move Validation", inventory)
+            self.assertIn("### Win And Draw Detection", inventory)
+            self.assertIn("### Reset And Replay Flow", inventory)
+            self.assertIn("### Browser Interaction And Accessibility", inventory)
+            self.assertIn("### Static App Packaging And Documentation", inventory)
+            self.assertNotIn("### Core Contract Usage", inventory)
+            self.assertNotIn("### Field Validation", inventory)
+
+            stories = (workflow / "stories.md").read_text(encoding="utf-8")
+            self.assertIn("- Compatibility mode: browser-game", stories)
+            self.assertIn("- Delivery kind: product", stories)
+            self.assertIn("- Runtime surface: frontend", stories)
+            self.assertIn("- Domain packs: game-rules, ui-state, accessibility, documentation", stories)
+            self.assertIn("## Story 1: Build Playable Board And Turn Loop", stories)
+            self.assertIn("Covers: Board Rendering And Layout, Turn Management, Move Validation", stories)
+            self.assertIn("## Story 2: Add Game Outcome Detection", stories)
+            self.assertIn("## Story 3: Add Reset, Replay, And Accessibility", stories)
+            self.assertIn("## Story 4: Package Static Browser App And Guidance", stories)
+            self.assertNotIn("Core Contract Usage", stories)
+
+    def test_capability_inventory_uses_profile_not_mode_for_capability_selection(self) -> None:
+        inventory = generate_capability_inventory.format_inventory(
+            mode="general-delivery",
+            rationale="Compatibility mode intentionally does not drive capability selection.",
+            text="Build a browser game with a board, turns, wins, draw detection, reset, and keyboard access.",
+            workflow_slug="demo",
+            workflow_statuses={},
+            profile={
+                "mode": "general-delivery",
+                "rationale": "Compatibility mode intentionally does not drive capability selection.",
+                "delivery_kind": "product",
+                "runtime_surface": "frontend",
+                "domain_packs": ["game-rules", "ui-state", "accessibility"],
+                "assurance_level": "normal",
+                "workflow_strategy": "simple",
+            },
+        )
+
+        self.assertIn("- Mode: general-delivery", inventory)
+        self.assertIn("- Runtime surface: frontend", inventory)
+        self.assertIn("- Domain packs: game-rules, ui-state, accessibility", inventory)
+        self.assertIn("### Board Rendering And Layout", inventory)
+        self.assertIn("### Turn Management", inventory)
+        self.assertIn("### Win And Draw Detection", inventory)
+        self.assertNotIn("### Core Contract Usage", inventory)
 
     def test_story_slices_preserve_human_curated_content(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-manual-stories-") as tmp:
@@ -243,6 +606,119 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertIn("Implementation:", bullets[0])
             self.assertIn("TypeScript MCP stdio runtime skeleton", bullets[0])
             self.assertTrue(any(line.startswith("- Test:") for line in bullets))
+
+    def test_implementation_plan_keeps_all_acceptance_for_high_risk_interface_story(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-high-risk-implementation-plan-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "sql-server-mcp-design"
+            workflow.mkdir(parents=True)
+            (workflow / "state.md").write_text(
+                "# State\n\n- Active items: Story 4\n",
+                encoding="utf-8",
+            )
+            (workflow / "dag.json").write_text(
+                json.dumps(
+                    {
+                        "validation": {"status": "valid"},
+                        "nodes": [
+                            {
+                                "id": "story-4",
+                                "story": "Story 4",
+                                "title": "Read-Only Query Policy Classifier",
+                                "status": "active",
+                                "risk": "high",
+                                "touches_interfaces": True,
+                                "needs_deeper_qa": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "story-4.md").write_text(
+                "\n".join(
+                    [
+                        "# Story 4",
+                        "",
+                        "## Story",
+                        "Read-Only Query Policy Classifier",
+                        "",
+                        "## Scope",
+                        "Implement query normalization and policy classification before execution.",
+                        "",
+                        "## Acceptance Criteria",
+                        "- Allows only a single SELECT or CTE statement.",
+                        "- Blocks DML, DDL, EXEC, MERGE, TRUNCATE, SELECT INTO, and linked-server access.",
+                        "- Applies allowed database/schema/object rules.",
+                        "- Produces query hash, normalized SQL, policy violations, warnings, and effective limits.",
+                        "- Treats parsing/classification as defense in depth.",
+                        "",
+                        "## Test Expectations",
+                        "- Tests cover allowed SELECT and CTE forms.",
+                        "- Tests cover blocked categories.",
+                        "- Tests cover comment and string-literal attempts.",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(generate_implementation_plan, root), 0)
+
+            plan = (workflow / "implementation-plan.md").read_text(encoding="utf-8")
+            included = plan.split("## Included In PR 1", 1)[1].split("## Ownership And Handoffs", 1)[0]
+            deferred = plan.split("## Deferred To Later Slice(s)", 1)[1].split("## Risks To Watch", 1)[0]
+            self.assertIn("Take the full acceptance-bearing slice for this high-risk/interface story", plan)
+            self.assertIn("Acceptance: Applies allowed database/schema/object rules.", included)
+            self.assertIn("Acceptance: Produces query hash, normalized SQL, policy violations, warnings, and effective limits.", included)
+            self.assertIn("Acceptance: Treats parsing/classification as defense in depth.", included)
+            self.assertIn("Test: Tests cover comment and string-literal attempts.", included)
+            self.assertNotIn("Applies allowed database/schema/object rules", deferred)
+            self.assertNotIn("Produces query hash", deferred)
+
+    def test_implementation_plan_defers_only_explicit_later_slice_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-explicit-later-slice-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "sql-server-mcp-design"
+            workflow.mkdir(parents=True)
+            (workflow / "state.md").write_text(
+                "# State\n\n- Active items: Story 1\n",
+                encoding="utf-8",
+            )
+            (workflow / "story-1.md").write_text(
+                "\n".join(
+                    [
+                        "# Story 1",
+                        "",
+                        "## Scope",
+                        "Build a focused runtime slice.",
+                        "",
+                        "## Acceptance Criteria",
+                        "- Runtime contract is implemented.",
+                        "- Later slice: HTTP transport is implemented.",
+                        "- [deferred] Admin tools are implemented.",
+                        "",
+                        "## Test Expectations",
+                        "- Runtime contract tests pass.",
+                        "- HTTP transport tests pass.",
+                        "- Admin tool tests pass.",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(generate_implementation_plan, root), 0)
+
+            plan = (workflow / "implementation-plan.md").read_text(encoding="utf-8")
+            included = plan.split("## Included In PR 1", 1)[1].split("## Ownership And Handoffs", 1)[0]
+            deferred = plan.split("## Deferred To Later Slice(s)", 1)[1].split("## Risks To Watch", 1)[0]
+            self.assertIn("Acceptance: Runtime contract is implemented.", included)
+            self.assertNotIn("HTTP transport is implemented", included)
+            self.assertNotIn("Admin tools are implemented", included)
+            self.assertIn("Acceptance (explicit later slice): HTTP transport is implemented.", deferred)
+            self.assertIn("Acceptance (explicit later slice): Admin tools are implemented.", deferred)
+            self.assertIn("Test: Admin tool tests pass.", deferred)
 
     def test_implementation_plan_flags_typescript_build_scope_drift(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wrkflw-build-scope-drift-") as tmp:
@@ -431,8 +907,15 @@ class WorkflowRegressionTests(unittest.TestCase):
                     [
                         "# Capability Inventory",
                         "",
-                        "## Workflow Mode",
-                        "- Mode: product-service",
+                        "## Compatibility Workflow Mode",
+                        "- Mode: sql-server-mcp",
+                        "",
+                        "## Planning Profile",
+                        "- Delivery kind: tool",
+                        "- Runtime surface: mcp-server",
+                        "- Domain packs: database, ai-agent, security",
+                        "- Assurance level: high-risk",
+                        "- Workflow strategy: spec-driven",
                         "",
                         "## Capability Categories",
                         "### MCP Protocol Baseline",
@@ -460,6 +943,10 @@ class WorkflowRegressionTests(unittest.TestCase):
             )
             tasks = (change / "tasks.md").read_text(encoding="utf-8")
             self.assertIn("SQL Server Connection Configuration", proposal)
+            self.assertIn("- Delivery kind: `tool`", proposal)
+            self.assertIn("- Runtime surface: `mcp-server`", proposal)
+            self.assertIn("- Domain packs: `database, ai-agent, security`", proposal)
+            self.assertIn("- Compatibility workflow mode: `sql-server-mcp`", proposal)
             self.assertIn("Security Policy Baseline", spec)
             self.assertNotIn("Schema Discovery Resources", proposal)
             self.assertNotIn("Read-Only Query Execution", spec)
@@ -554,6 +1041,57 @@ class WorkflowRegressionTests(unittest.TestCase):
             self.assertNotIn("Read-Only Query Execution", proposal)
             self.assertNotIn("Developer And Operator Documentation", spec)
             self.assertNotIn("Read-Only Query Execution", tasks)
+
+    def test_workflow_diagrams_render_planning_profile_not_primary_mode_only(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wrkflw-profile-diagram-") as tmp:
+            root = Path(tmp)
+            workflow = root / ".workflow" / "demo"
+            workflow.mkdir(parents=True)
+            (workflow / "state.md").write_text(
+                "\n".join(
+                    [
+                        "# State",
+                        "",
+                        "- Current stage: story-slicing",
+                        "- Human gate status: pending",
+                        "- Active items: Story 1",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "capabilities.md").write_text(
+                "\n".join(
+                    [
+                        "# Capability Inventory",
+                        "",
+                        "## Compatibility Workflow Mode",
+                        "- Mode: browser-game",
+                        "",
+                        "## Planning Profile",
+                        "- Delivery kind: product",
+                        "- Runtime surface: frontend",
+                        "- Domain packs: game-rules, ui-state, accessibility",
+                        "- Assurance level: normal",
+                        "- Workflow strategy: simple",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (workflow / "stories.md").write_text(
+                "# Stories\n\n## Story 1: Build Board\nCovers: Board Rendering And Layout\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_script_main(generate_workflow_diagram, root, slug="demo"), 0)
+
+            flow = (workflow / "diagram-flow.puml").read_text(encoding="utf-8")
+            work = (workflow / "diagram-work.puml").read_text(encoding="utf-8")
+            self.assertIn("Compatibility mode: browser-game", flow)
+            self.assertIn("Delivery: product", flow)
+            self.assertIn("Runtime: frontend", flow)
+            self.assertNotIn("Workflow mode:", flow)
+            self.assertIn("Compatibility mode: browser-game", work)
+            self.assertIn("Domains: game-rules, ui-state, accessibility", work)
 
     def test_policy_classifier_fuzzy_coverage_does_not_inherit_query_execution(self) -> None:
         capabilities = [

@@ -5,6 +5,8 @@ import argparse
 import re
 from pathlib import Path
 
+from workflow_profile import parse_planning_profile, profile_mode, profile_note_lines
+
 
 STAGES = [
     "discuss",
@@ -295,11 +297,8 @@ def workflow_contract(path: Path) -> dict[str, str]:
     }
 
 
-def capability_mode(path: Path) -> str:
-    for line in read_text(path).splitlines():
-        if line.startswith("- Mode:"):
-            return line.split(":", 1)[1].strip()
-    return "general-delivery"
+def capability_profile(path: Path) -> dict[str, object]:
+    return parse_planning_profile(read_text(path))
 
 
 def alias(name: str) -> str:
@@ -916,7 +915,8 @@ def write_flow_diagram(
     current = state.get("Current stage", "discuss") or "discuss"
     gates = parse_gate_settings(wf / "gates.md")
     contract = workflow_contract(wf / "workflow-contract.md")
-    mode = capability_mode(wf / "capabilities.md")
+    profile = capability_profile(wf / "capabilities.md")
+    mode = profile_mode(profile)
     config = parse_diagram_config(wf / "diagram-config.md")
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
@@ -994,7 +994,8 @@ def write_flow_diagram(
             "note right of epic_shaping",
             f"Epic problem: {epic_problem}",
             f"Epic goal: {epic_goal}",
-            f"Workflow mode: {mode}",
+            f"Compatibility mode: {mode}",
+            *profile_note_lines(profile),
             "end note",
             "note right of story_slicing",
             *story_summary_lines(stories, state, progress, touched_order),
@@ -1026,7 +1027,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         stories = story_file_entries(wf)
     gates = parse_gate_settings(wf / "gates.md")
     contract = workflow_contract(wf / "workflow-contract.md")
-    mode = capability_mode(wf / "capabilities.md")
+    profile = capability_profile(wf / "capabilities.md")
+    mode = profile_mode(profile)
     config = parse_diagram_config(wf / "diagram-config.md")
     team = parse_team_settings(wf)
     board = parse_execution_board(wf)
@@ -1082,7 +1084,8 @@ def write_work_diagram(wf: Path, slug: str, state: dict[str, str], links: dict[s
         f'  note as epic_note',
         f'  Epic problem: {epic_problem}',
         f'  Epic goal: {epic_goal}',
-        f'  Workflow mode: {mode}',
+        f'  Compatibility mode: {mode}',
+        *[f'  {line}' for line in profile_note_lines(profile)],
         f'  Current stage: {state.get("Current stage", "-") or "-"}',
         f'  Team size: {team.get("Team size", "-") or "-"}',
         f'  Parallel slots: {team.get("Parallel implementation slots", "-") or "-"}',

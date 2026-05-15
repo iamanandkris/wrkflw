@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>wrkflw Deep Lifecycle Map</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #cbd5e1;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --green: #16a34a;
+      --lime: #65a30d;
+      --orange: #d97706;
+      --purple: #7c3aed;
+      --slate: #475569;
+      --red: #dc2626;
+      --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1120px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(248, 250, 252, 0.96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .header-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px 32px 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 38px;
+      line-height: 1.05;
+      color: #1f2937;
+    }
+
+    .subtitle {
+      margin: 10px 0 18px;
+      max-width: 980px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 8px;
+      padding: 9px 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #dbeafe;
+    }
+
+    .legend {
+      display: flex;
+      gap: 12px;
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 13px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot.gate { background: var(--orange); }
+    .dot.swe { background: var(--purple); }
+    .dot.artifact { background: var(--blue); }
+    .dot.recovery { background: var(--red); }
+
+    main {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 28px 32px 72px;
+    }
+
+    .map {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+    }
+
+    nav {
+      position: sticky;
+      top: 150px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    nav h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    nav a {
+      display: block;
+      color: #334155;
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 7px;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    nav a:hover {
+      background: #f1f5f9;
+      color: var(--blue);
+    }
+
+    .lane {
+      position: relative;
+      padding-left: 48px;
+    }
+
+    .lane::before {
+      content: "";
+      position: absolute;
+      left: 19px;
+      top: 8px;
+      bottom: 8px;
+      width: 4px;
+      background: linear-gradient(var(--blue), var(--purple), var(--orange), var(--green));
+      border-radius: 999px;
+    }
+
+    .stage {
+      position: relative;
+      margin: 0 0 22px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .stage::before {
+      content: "";
+      position: absolute;
+      left: -39px;
+      top: 28px;
+      width: 20px;
+      height: 20px;
+      border: 5px solid var(--blue);
+      background: #ffffff;
+      border-radius: 50%;
+      z-index: 2;
+    }
+
+    .stage.gate::before { border-color: var(--orange); }
+    .stage.swe::before { border-color: var(--purple); }
+    .stage.validation::before { border-color: var(--teal); }
+    .stage.recovery::before { border-color: var(--red); }
+    .stage.complete::before { border-color: var(--green); }
+
+    .stage-head {
+      padding: 20px 22px 18px;
+      border-left: 7px solid var(--blue);
+    }
+
+    .stage.gate .stage-head { border-left-color: var(--orange); }
+    .stage.swe .stage-head { border-left-color: var(--purple); }
+    .stage.validation .stage-head { border-left-color: var(--teal); }
+    .stage.recovery .stage-head { border-left-color: var(--red); }
+    .stage.complete .stage-head { border-left-color: var(--green); }
+
+    .stage-kicker {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      background: #f1f5f9;
+    }
+
+    .badge.gate { color: #9a3412; background: #ffedd5; }
+    .badge.swe { color: #5b21b6; background: #ede9fe; }
+    .badge.artifact { color: #1d4ed8; background: #dbeafe; }
+    .badge.recovery { color: #991b1b; background: #fee2e2; }
+    .badge.complete { color: #166534; background: #dcfce7; }
+
+    h2 {
+      margin: 0;
+      color: #1f2937;
+      font-size: 25px;
+      line-height: 1.15;
+    }
+
+    .stage-summary {
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .body {
+      padding: 0 22px 22px;
+    }
+
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 0 0 16px;
+    }
+
+    .quick-card {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 92px;
+    }
+
+    .quick-card h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #334155;
+      text-transform: uppercase;
+    }
+
+    .quick-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    details {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #ffffff;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 13px 14px;
+      font-weight: 700;
+      color: #334155;
+      background: #f8fafc;
+      list-style: none;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::before {
+      content: ">";
+      display: inline-block;
+      margin-right: 10px;
+      color: var(--blue);
+      transform: rotate(0deg);
+      transition: transform 0.15s ease;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    .detail-body {
+      padding: 14px 16px 16px;
+    }
+
+    ul {
+      margin: 8px 0 0;
+      padding-left: 20px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    li + li {
+      margin-top: 5px;
+    }
+
+    code {
+      background: #f1f5f9;
+      color: #0f172a;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .command-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .command-grid code {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e3a8a;
+      font-weight: 700;
+    }
+
+    .loop {
+      margin: 24px 0 0;
+      border: 2px dashed var(--green);
+      background: #f0fdf4;
+      color: #166534;
+      border-radius: 14px;
+      padding: 18px 20px;
+    }
+
+    .loop strong {
+      color: #14532d;
+    }
+
+    .footer-note {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    @media print {
+      header, nav, .controls {
+        position: static;
+      }
+
+      body {
+        min-width: auto;
+      }
+
+      .map {
+        display: block;
+      }
+
+      nav {
+        display: none;
+      }
+
+      details {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>wrkflw Deep Lifecycle Map</h1>
+      <p class="subtitle">
+        A vertical, scrollable view of wrkflw from initial repository/design analysis to repeated story delivery, SWE-AF-style recovery loops, human gates, and final workflow completion.
+      </p>
+      <div class="controls">
+        <button type="button" onclick="setDetails(true)">Expand all</button>
+        <button type="button" onclick="setDetails(false)">Collapse all</button>
+        <div class="legend" aria-label="Legend">
+          <span><i class="dot artifact"></i>artifact/control stage</span>
+          <span><i class="dot gate"></i>human gate</span>
+          <span><i class="dot swe"></i>SWE-AF-inspired runtime</span>
+          <span><i class="dot recovery"></i>recovery/replan loop</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="map">
+      <nav aria-label="Lifecycle navigation">
+        <h2>Lifecycle</h2>
+        <a href="#bootstrap">0. Bootstrap</a>
+        <a href="#analysis">1. Design and Codebase Analysis</a>
+        <a href="#capability">2. Capability Review</a>
+        <a href="#epic">3. Epic Shaping</a>
+        <a href="#slicing">4. Story Slicing and DAG</a>
+        <a href="#enrichment">5. Story Enrichment</a>
+        <a href="#openspec">6. OpenSpec Authoring</a>
+        <a href="#planning">7. Implementation Planning</a>
+        <a href="#team">8. Team Runtime</a>
+        <a href="#validation">9. Merge and Validation</a>
+        <a href="#review">10. Review and Synthesis</a>
+        <a href="#recovery">11. Recovery and Replan</a>
+        <a href="#release">12. Release and Story Closeout</a>
+        <a href="#loop">13. Next Story or Done</a>
+      </nav>
+
+      <section class="lane" aria-label="Vertical wrkflw lifecycle">
+        <article class="stage" id="bootstrap">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge artifact">artifact control plane</span>
+              <span class="badge">source of truth setup</span>
+            </div>
+            <h2>0. Bootstrap The Workflow Lane</h2>
+            <p class="stage-summary">Create the local workflow lane, establish canonical state, seed team/runtime files, and prepare transaction-safe command handling.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Primary commands</h3><p><code>wrkflw:discuss</code>, companion init script, command handler prepare phase.</p></div>
+              <div class="quick-card"><h3>Artifacts</h3><p><code>state.md</code>, <code>history.md</code>, <code>gates.md</code>, <code>workflow-contract.md</code>, diagrams, team files.</p></div>
+              <div class="quick-card"><h3>Decision</h3><p>Establish the lane without silently skipping gates or OpenSpec requirements.</p></div>
+            </div>
+            <details open>
+              <summary>Inner steps</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Create `.workflow/&lt;slug&gt;/` and register the lane in `.workflow/initiative-index.md`.</li>
+                  <li>Initialize `state.md` with canonical stage and gate values, not freeform status labels.</li>
+                  <li>Seed coordination artifacts such as `agent-assignments.md`, `execution-board.md`, `runtime-contract.md`, `team-minutes.md`, and `review-log.md`.</li>
+                  <li>Create or refresh `diagram-flow.puml` and `diagram-work.puml` after state-changing commands.</li>
+                  <li>Run workflow commands through a transaction journal so failed commands can roll back and `wrkflw:resume` can continue safely.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Command surface</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:discuss</code>
+                  <code>wrkflw:actions</code>
+                  <code>wrkflw:resume</code>
+                  <code>wrkflw:next</code>
+                  <code>wrkflw:override</code>
+                  <code>wrkflw:accounting-record</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage" id="analysis">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge artifact">repo-first discovery</span>
+              <span class="badge">design normalization</span>
+            </div>
+            <h2>1. Design Document And Codebase Analysis</h2>
+            <p class="stage-summary">Inspect the existing repository before treating a design seed as the source of truth. Normalize broad designs into workflow-ready slices and surface drift early.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Inputs</h3><p><code>README.md</code>, build files, source entrypoints, tests, active OpenSpec, <code>design.md</code> or <code>docs/design.md</code>.</p></div>
+              <div class="quick-card"><h3>Artifacts</h3><p><code>design-seed.md</code>, <code>design-slice.md</code>, <code>.workflow/_normalized/master-design.md</code>, <code>epic-candidates.md</code>, <code>links.md</code>.</p></div>
+              <div class="quick-card"><h3>Checks</h3><p>Code vs design drift, code vs workflow drift, code vs OpenSpec drift, current implementation shape, coverage gaps.</p></div>
+            </div>
+            <details open>
+              <summary>Inner steps</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Read existing repo evidence first, especially README, package/build files, source roots, tests, and active OpenSpec changes.</li>
+                  <li>Auto-detect a design seed from `design.md` or `docs/design.md`, or use an explicitly supplied design file.</li>
+                  <li>If the design is broad, normalize it into shared design material and an epic-specific `design-slice.md`.</li>
+                  <li>Preserve section semantics such as actors, capabilities, architecture, operations, and constraints so story shaping does not flatten everything into one backlog.</li>
+                  <li>If the implementation is ahead of workflow artifacts, classify it as reconciliation work before new planning continues.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands and recommended routing</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:discuss "..."</code>
+                  <code>wrkflw:reconcile "..."</code>
+                  <code>wrkflw:openspec-sync</code>
+                  <code>wrkflw:refine "..."</code>
+                </div>
+                <ul>
+                  <li>Use `reconcile` when repo evidence is ahead of `.workflow` or OpenSpec artifacts.</li>
+                  <li>Use `openspec-sync` when the active workflow is valid but the OpenSpec change is stale.</li>
+                  <li>Use `refine` when the analysis is directionally right but missing an important artifact or concern.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="capability">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge artifact">capability inventory</span>
+            </div>
+            <h2>2. Capability Review</h2>
+            <p class="stage-summary">Review the generated capability inventory before epic shaping. This is the first guard against thin planning or accidental epic-wide scope.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Primary artifact</h3><p><code>capabilities.md</code> with workflow mode, required/recommended/optional capabilities, and story prompts.</p></div>
+              <div class="quick-card"><h3>Human decision</h3><p>Approve, reject, refine, rework, or defer explicit capability scope.</p></div>
+              <div class="quick-card"><h3>Planning effect</h3><p>Approved capabilities seed `stories.md`; they also flow into OpenSpec coverage context.</p></div>
+            </div>
+            <details>
+              <summary>Capability modes</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>`tutorial-sample`: optimize for pedagogy and a clear learning path.</li>
+                  <li>`feature-harness`: optimize for broad coverage and realistic feature comparison.</li>
+                  <li>`product-service`: optimize for runtime/service behavior and realistic execution paths.</li>
+                  <li>`general-delivery`: default when no stronger mode signal exists.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:approve "..."</code>
+                  <code>wrkflw:reject "..."</code>
+                  <code>wrkflw:refine "..."</code>
+                  <code>wrkflw:rework "..."</code>
+                  <code>wrkflw:defer "..."</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="epic">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge">problem framing</span>
+            </div>
+            <h2>3. Epic Shaping</h2>
+            <p class="stage-summary">Turn analysis and capabilities into an epic boundary with explicit goals, non-goals, assumptions, risks, constraints, and decisions.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>context.md</code>, <code>decisions.md</code>, <code>assumptions.md</code>, <code>risks.md</code>, <code>links.md</code>.</p></div>
+              <div class="quick-card"><h3>Human decision</h3><p>Confirm the epic boundary before slicing stories.</p></div>
+              <div class="quick-card"><h3>Risk</h3><p>Unclear non-goals here become scope drift during OpenSpec or implementation planning.</p></div>
+            </div>
+            <details>
+              <summary>Review focus</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Does the epic match the codebase reality discovered earlier?</li>
+                  <li>Are non-goals explicit enough to prevent overbuilding?</li>
+                  <li>Are assumptions visible instead of hidden inside story text?</li>
+                  <li>Are dependencies on other lanes captured in `dependencies.md`?</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="slicing">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge swe">SWE-AF: issue DAG</span>
+            </div>
+            <h2>4. Story Slicing And Executable DAG</h2>
+            <p class="stage-summary">Split the epic into small, mergeable stories and turn story dependencies into a schedulable DAG with ready, blocked, deferred, active, and completed status hints.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>stories.md</code>, <code>dependencies.md</code>, <code>dag.json</code>, <code>dag.md</code>, <code>dag-validation.md</code>.</p></div>
+              <div class="quick-card"><h3>SWE-AF influence</h3><p>Executable story DAG, dependency levels, ready nodes, parallelism eligibility.</p></div>
+              <div class="quick-card"><h3>Human decision</h3><p>Approve the slice set or rework stories that are too broad, too thin, or dependency-unsafe.</p></div>
+            </div>
+            <details open>
+              <summary>Inner steps</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Generate `stories.md` from the reviewed capability inventory.</li>
+                  <li>Extract `Depends on:` lines and lane blockers into the DAG.</li>
+                  <li>Validate unknown dependencies, dependency cycles, and lane-level blockers.</li>
+                  <li>Compute execution levels so safe parallel dispatch can be prepared later.</li>
+                  <li>Carry debt warnings and high-risk story metadata into planning context.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:approve "..."</code>
+                  <code>wrkflw:dag-sync</code>
+                  <code>wrkflw:proceed-only "Story N"</code>
+                  <code>wrkflw:defer "Story N"</code>
+                  <code>wrkflw:rework-item "Story N"</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="enrichment">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate per story</span>
+              <span class="badge swe">planner risk metadata</span>
+            </div>
+            <h2>5. Story Enrichment</h2>
+            <p class="stage-summary">For the active story, add acceptance criteria, test expectations, allowed write paths, risk metadata, and review focus before spec work starts.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifact</h3><p><code>story-N.md</code> with scope, ACs, tests, risks, likely changed paths, and ownership notes.</p></div>
+              <div class="quick-card"><h3>Inherited context</h3><p>DAG dependencies, downstream impact, memory, debt, prior findings, and design slice.</p></div>
+              <div class="quick-card"><h3>Parallel safety</h3><p>Ready stories need explicit disjoint <code>Allowed Write Paths</code> for parallel dispatch.</p></div>
+            </div>
+            <details>
+              <summary>SWE-AF-style risk metadata</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Estimated scope and likely changed paths.</li>
+                  <li>Touches interfaces, database, auth, transport, side effects, migrations, or cross-module contracts.</li>
+                  <li>Needs new tests or deeper QA.</li>
+                  <li>Risk rationale and review focus for role packets.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Supporting commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:memory-record</code>
+                  <code>wrkflw:debt-record</code>
+                  <code>wrkflw:refine</code>
+                  <code>wrkflw:approve</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="openspec">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge artifact">OpenSpec lane</span>
+            </div>
+            <h2>6. OpenSpec Authoring And Review</h2>
+            <p class="stage-summary">Create or update a story-scoped OpenSpec change and block if OpenSpec is required but unavailable, unless the user explicitly waives it.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>proposal.md</code>, <code>spec.md</code>, <code>tasks.md</code> under <code>openspec/changes/&lt;change&gt;/</code>.</p></div>
+              <div class="quick-card"><h3>Gate</h3><p>Human reviews the proposal/spec/tasks before implementation planning.</p></div>
+              <div class="quick-card"><h3>Guardrail</h3><p>OpenSpec is single-lane by default and should not pre-create every epic change.</p></div>
+            </div>
+            <details>
+              <summary>Coverage controls</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Proposal carries workflow mode and capability categories intentionally covered by the active story.</li>
+                  <li>Spec carries explicit current-story scenarios and deferred coverage visibility.</li>
+                  <li>Tasks make capability coverage explicit and leave follow-up context for deferred categories.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:openspec-sync</code>
+                  <code>wrkflw:override "..."</code>
+                  <code>wrkflw:approve "..."</code>
+                  <code>wrkflw:reject "..."</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="planning">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge swe">risk-based execution path</span>
+            </div>
+            <h2>7. Implementation Planning</h2>
+            <p class="stage-summary">Turn the approved story/spec into an executable PR-sized plan with team ownership, DAG context, risk route, validation expectations, and explicit file boundaries.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>implementation-plan.md</code>, <code>execution-path.json</code>, <code>execution-path.md</code>, assignments.</p></div>
+              <div class="quick-card"><h3>Routing</h3><p>`simple` for implementer/reviewer; `flagged` for Tech Lead, Reviewer QA, and fresh synthesis.</p></div>
+              <div class="quick-card"><h3>Gate concern</h3><p>The first slice must include required acceptance criteria, not defer them unless the story explicitly says so.</p></div>
+            </div>
+            <details open>
+              <summary>Plan completeness checks</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Every acceptance criterion needs implementation and validation coverage.</li>
+                  <li>Test-only slices are invalid when the runtime skeleton does not exist.</li>
+                  <li>High-risk/interface stories should not defer object rules, classifier outputs, or contract behavior that are acceptance criteria.</li>
+                  <li>Team ownership must respect disjoint write scopes when parallel execution is planned.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:execution-path</code>
+                  <code>wrkflw:staff</code>
+                  <code>wrkflw:assign</code>
+                  <code>wrkflw:approve</code>
+                  <code>wrkflw:refine</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage swe" id="team">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge swe">SWE-AF-inspired runtime</span>
+              <span class="badge">delegated team execution</span>
+            </div>
+            <h2>8. Team Runtime, Dispatch, And Parallel Worktrees</h2>
+            <p class="stage-summary">Prepare role packets and optional isolated worktrees so Codex can run Product Owner, Tech Lead, Implementer, and Reviewer QA lanes with explicit sync back into workflow artifacts.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>team-dispatch.md</code>, <code>dispatch/*.md</code>, <code>parallel-dispatch/*</code>, <code>worktrees/manifest.json</code>.</p></div>
+              <div class="quick-card"><h3>Result ingestion</h3><p><code>agent-results/*</code>, <code>agent-sync-ledger.md</code>, strict result schema validation.</p></div>
+              <div class="quick-card"><h3>Team model</h3><p>Product Owner, Tech Lead, Implementer lanes, Reviewer QA, with role reviews and conflict records.</p></div>
+            </div>
+            <details open>
+              <summary>Delegated execution sequence</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>`team-run` generates role packets for the active story and can prepare merge-eligible implementer worktrees.</li>
+                  <li>`team-run-level` dispatches every safe ready story in the earliest DAG level when at least two ready stories have disjoint allowed paths.</li>
+                  <li>Agents return structured result envelopes into `agent-results/`.</li>
+                  <li>`team-sync-all` validates and ingests envelopes, updates `role-reviews.md`, `review-log.md`, `conflicts.md`, `assumptions.md`, `team-minutes.md`, and execution board state.</li>
+                  <li>`team-sync` can still ingest direct lightweight role progress when a full envelope is unnecessary.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:team-run</code>
+                  <code>wrkflw:team-run-level</code>
+                  <code>wrkflw:team-sync</code>
+                  <code>wrkflw:team-sync-all</code>
+                  <code>wrkflw:challenge</code>
+                  <code>wrkflw:review-sync</code>
+                  <code>wrkflw:worktree-clean</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage validation" id="validation">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge swe">merge and validation gates</span>
+              <span class="badge artifact">evidence before review</span>
+            </div>
+            <h2>9. Merge Gate, Merge Apply, Integration Gate, CI, And Verify-Fix</h2>
+            <p class="stage-summary">After implementation, wrkflw checks changed paths, applies approved lane branches only with confirmation, records integration validation, captures external CI, and verifies acceptance criteria.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>merge-gate.md</code>, <code>merge-apply.md</code>, <code>integration-test-gate.md</code>, <code>ci-feedback.md</code>, <code>verify-fix.md</code>.</p></div>
+              <div class="quick-card"><h3>Safety</h3><p>Merge gate is read-only; merge apply requires <code>confirm: merge-apply</code>; integration execution is allowlisted.</p></div>
+              <div class="quick-card"><h3>Blocking</h3><p>Review approval blocks on stale, missing, failed, or waived-without-reason validation evidence.</p></div>
+            </div>
+            <details open>
+              <summary>Validation layers</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>`merge-gate` verifies worktree cleanliness, changed paths, conflict probes, manifest freshness, and ownership scope.</li>
+                  <li>`merge-apply` applies only ready wrkflw-owned lane branches after explicit confirmation and records a pre-apply checkpoint.</li>
+                  <li>`integration-gate` decides whether integration validation is required and can run only allowlisted `test-id` entries with structured argv.</li>
+                  <li>`ci-feedback` records external CI status against the current `HEAD` and classifies failures.</li>
+                  <li>`verify-fix` compares story acceptance criteria against explicit evidence and creates focused fix tasks for failed or unverified criteria.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:merge-gate</code>
+                  <code>wrkflw:merge-apply "confirm: merge-apply"</code>
+                  <code>wrkflw:integration-gate</code>
+                  <code>wrkflw:integration-gate "test-id: api-smoke"</code>
+                  <code>wrkflw:ci-feedback</code>
+                  <code>wrkflw:verify-fix</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate" id="review">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge swe">feedback synthesizer</span>
+            </div>
+            <h2>10. Review Gate And Feedback Synthesis</h2>
+            <p class="stage-summary">Synthesize role reviews, findings, conflicts, debt, execution path, validation gates, CI, and failure classifications into a single actionable recommendation.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>feedback-synthesis.md</code>, <code>role-reviews.md</code>, <code>review-log.md</code>, <code>conflicts.md</code>, <code>assumptions.md</code>.</p></div>
+              <div class="quick-card"><h3>Recommendations</h3><p><code>approve</code>, <code>fix</code>, <code>split</code>, <code>defer</code>, <code>block</code>, or <code>replan</code>.</p></div>
+              <div class="quick-card"><h3>Gate behavior</h3><p>Flagged execution paths require fresh approving synthesis before release planning.</p></div>
+            </div>
+            <details>
+              <summary>Review evidence</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Reviewer QA and Product Owner evidence can be required by gate configuration.</li>
+                  <li>Open blocking conflicts prevent gate advancement until resolved.</li>
+                  <li>Incorrect assumptions and contested assumptions are kept visible in `assumptions.md`.</li>
+                  <li>Promoted failure classifications can route the story to fix, split, block, or replan.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:feedback-synth</code>
+                  <code>wrkflw:review-sync</code>
+                  <code>wrkflw:challenge</code>
+                  <code>wrkflw:approve</code>
+                  <code>wrkflw:reject</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage recovery" id="recovery">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge recovery">recovery loop</span>
+              <span class="badge swe">SWE-AF: issue advisor and replanner</span>
+            </div>
+            <h2>11. Recovery, Issue Advisor, Replan, Debt, And Memory</h2>
+            <p class="stage-summary">When the story is blocked, wrkflw records typed failure evidence, recommends a bounded recovery action, and can propose human-approved DAG/story mutations.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>issue-advisor.md</code>, <code>replan.md</code>, <code>debt.md</code>, <code>memory.md</code>, append-only records.</p></div>
+              <div class="quick-card"><h3>Advisor actions</h3><p><code>retry_approach</code>, <code>retry_modified</code>, <code>accept_with_debt</code>, <code>split</code>, <code>escalate_to_replan</code>.</p></div>
+              <div class="quick-card"><h3>Mutation rule</h3><p>Replan applies only with <code>confirm: replan</code> and preserves completed story history.</p></div>
+            </div>
+            <details open>
+              <summary>Recovery routing</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Failure classifications identify dependency blocks, broad scope, environment failures, design contradictions, test failures, policy/security blocks, and merge/integration problems.</li>
+                  <li>`issue-advisor` consumes DAG, feedback synthesis, review evidence, debt, memory, gate artifacts, verify-fix, CI, and promoted failure classes.</li>
+                  <li>`replan` can propose split stories, modified acceptance criteria, skip/defer, remove, dependency rewrite, and remaining-story reorder.</li>
+                  <li>`debt-record` keeps accepted gaps visible and blocks release when unresolved high/critical debt remains open.</li>
+                  <li>`memory-record` captures repo conventions, failure patterns, interface notes, validated test commands, and implementation patterns for later stories.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:issue-advisor</code>
+                  <code>wrkflw:replan</code>
+                  <code>wrkflw:replan "confirm: replan"</code>
+                  <code>wrkflw:debt-record</code>
+                  <code>wrkflw:memory-record</code>
+                  <code>wrkflw:resume</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage gate complete" id="release">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge gate">human gate</span>
+              <span class="badge complete">story closeout</span>
+            </div>
+            <h2>12. Release Planning And Story Closeout</h2>
+            <p class="stage-summary">Review production readiness, remaining debt, release notes, validation status, and signoff evidence before marking the story complete.</p>
+          </div>
+          <div class="body">
+            <div class="quick">
+              <div class="quick-card"><h3>Artifacts</h3><p><code>release-plan.md</code>, <code>history.md</code>, archived OpenSpec change, updated diagrams.</p></div>
+              <div class="quick-card"><h3>Blocks</h3><p>Open high/critical debt, stale verification, missing required signoff, or stale OpenSpec sync.</p></div>
+              <div class="quick-card"><h3>Outcome</h3><p>Story reaches `done`; completed progression remains visible in diagrams and history.</p></div>
+            </div>
+            <details>
+              <summary>Closeout checks</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Confirm whether the story is production-worthy or local-only progress.</li>
+                  <li>Resolve, accept, or explicitly carry remaining debt.</li>
+                  <li>Archive the OpenSpec change only after the story closes.</li>
+                  <li>Clean wrkflw-owned worktrees when safe.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Commands</summary>
+              <div class="detail-body">
+                <div class="command-grid">
+                  <code>wrkflw:approve</code>
+                  <code>wrkflw:debt-record</code>
+                  <code>wrkflw:openspec-sync</code>
+                  <code>wrkflw:worktree-clean</code>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="stage complete" id="loop">
+          <div class="stage-head">
+            <div class="stage-kicker">
+              <span class="badge complete">loop or exit</span>
+              <span class="badge swe">DAG scheduler</span>
+            </div>
+            <h2>13. Next Story Loop Or Workflow Complete</h2>
+            <p class="stage-summary">After each story closes, wrkflw checks the DAG for ready remaining stories. If one exists, it loops back to story enrichment; if none remain, the workflow exits.</p>
+          </div>
+          <div class="body">
+            <div class="loop">
+              <strong>Loop:</strong> Story Done -> DAG status check -> `wrkflw:proceed-only "Story N"` or first ready story -> Story Enrichment -> OpenSpec -> Implementation -> Review -> Release.
+              <br />
+              <strong>Exit:</strong> no ready or remaining story for the lane -> workflow state becomes `done`.
+            </div>
+            <details open>
+              <summary>What repeats per story</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>Story enrichment and approval.</li>
+                  <li>OpenSpec story-scoped change and approval.</li>
+                  <li>Implementation planning and approval.</li>
+                  <li>Implementation/team dispatch/validation/review/recovery as needed.</li>
+                  <li>Release planning and story closeout.</li>
+                </ul>
+              </div>
+            </details>
+            <details>
+              <summary>Cross-cutting records updated throughout</summary>
+              <div class="detail-body">
+                <ul>
+                  <li>`state.md`, `history.md`, `execution-board.md`, `diagram-flow.puml`, `diagram-work.puml`.</li>
+                  <li>`records/*.jsonl`, `accounting.md`, `memory.md`, `debt.md`, and transaction checkpoints.</li>
+                  <li>OpenSpec lane ownership and archive state.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <p class="footer-note">
+          This map intentionally treats wrkflw as an artifact-first, human-gated workflow control plane with selected SWE-AF-inspired mechanics. It does not claim that Python scripts autonomously spawn agents; they prepare evidence, packets, records, and gates that Codex or another runtime can use.
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    function setDetails(open) {
+      document.querySelectorAll("details").forEach((node) => {
+        node.open = open;
+      });
+    }
+  </script>
+</body>
+</html>

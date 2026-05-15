@@ -150,7 +150,16 @@ def main() -> int:
     )
     write_if_missing(
         wf / "capabilities.md",
-        "# Capability Inventory\n\n## Workflow Mode\n\n- Mode: general-delivery\n- Rationale: No capability inventory has been generated yet.\n",
+        "# Capability Inventory\n\n"
+        "## Compatibility Workflow Mode\n\n"
+        "- Mode: general-delivery\n"
+        "- Rationale: No capability inventory has been generated yet.\n\n"
+        "## Planning Profile\n\n"
+        "- Delivery kind: general\n"
+        "- Runtime surface: unspecified\n"
+        "- Domain packs: general\n"
+        "- Assurance level: normal\n"
+        "- Workflow strategy: simple\n",
     )
     write_if_missing(
         wf / "state.md",

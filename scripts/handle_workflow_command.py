@@ -42,10 +42,13 @@ from workflow_agent_result_schema import (
     strict_schema_required,
     validate_agent_result_report,
 )
+from workflow_action_menu import run_action_menu
+from workflow_capability_synth import run_capability_synth
 from workflow_ci_feedback import ci_feedback_block, run_ci_feedback
 from workflow_feedback_synthesizer import feedback_synthesis_block, run_feedback_synthesis
 from workflow_integration_gate import integration_allowlist_path, integration_gate_path, run_integration_gate
 from workflow_issue_advisor import run_issue_advisor
+from workflow_stage_synth import SYNTH_COMMAND_KINDS, run_stage_synth
 from workflow_memory import (
     append_or_update_memory_record,
     ensure_memory_artifacts,
@@ -3767,6 +3770,44 @@ def handle_dag_sync(
     return state
 
 
+def handle_actions(state: dict[str, str], root: Path, workflow_slug: str) -> dict[str, str]:
+    run_action_menu(root, workflow_slug, state)
+    return state
+
+
+def handle_capability_synth(state: dict[str, str], root: Path, workflow_slug: str, objective: str | None) -> dict[str, str]:
+    payload = run_capability_synth(root, workflow_slug, objective or "")
+    validation = payload.get("validation", {}) if isinstance(payload, dict) else {}
+    status = str(validation.get("status") or "unknown")
+    state["Item note"] = "capability synthesis packet refreshed"
+    if status == "fail":
+        state["Blocked reason"] = "Capability synthesis validation has errors; review capability-synth-validation.md."
+        state["Human gate status"] = "blocked"
+    state["Next action"] = "review capability-synth.md, let Codex synthesize/update capabilities.md, then approve or refine capability review"
+    return state
+
+
+def handle_stage_synth(
+    state: dict[str, str],
+    root: Path,
+    workflow_slug: str,
+    command: str,
+    objective: str | None,
+) -> dict[str, str]:
+    kind = SYNTH_COMMAND_KINDS[command]
+    payload = run_stage_synth(root, workflow_slug, kind, objective or "")
+    validation = payload.get("validation", {}) if isinstance(payload, dict) else {}
+    status = str(validation.get("status") or "unknown")
+    artifact_stem = str(payload.get("artifact_stem") or command)
+    title = str(payload.get("title") or artifact_stem)
+    state["Item note"] = f"{title} refreshed"
+    if status == "fail":
+        state["Blocked reason"] = f"{title} validation has errors; review {artifact_stem}-validation.md."
+        state["Human gate status"] = "blocked"
+    state["Next action"] = f"review {artifact_stem}.md, let Codex synthesize/update the related workflow artifact, then approve or refine the current gate"
+    return state
+
+
 def dag_validation(payload: dict[str, object]) -> dict[str, object]:
     validation = payload.get("validation", {})
     return validation if isinstance(validation, dict) else {}
@@ -4904,10 +4945,10 @@ def handle_override(state: dict[str, str], reason: str, root: Path, workflow_slu
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, resume, override, openspec-sync, dag-sync, execution-path, feedback-synth, issue-advisor, replan, verify-fix, ci-feedback, accounting-record, memory-record, debt-record, merge-gate, merge-apply, integration-gate, worktree-clean, and team operations.")
+    parser = argparse.ArgumentParser(description="Handle workflow command intents such as approve, reject, reconcile, rework, refine, rework-item, proceed-only, defer, next, resume, override, openspec-sync, actions, synthesis packet generation, dag-sync, execution-path, feedback-synth, issue-advisor, replan, verify-fix, ci-feedback, accounting-record, memory-record, debt-record, merge-gate, merge-apply, integration-gate, worktree-clean, and team operations.")
     parser.add_argument("--slug", required=True, help="Workflow slug, e.g. add-scim-managed-optout")
     parser.add_argument("--root", default=".", help="Repository root")
-    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "openspec-sync", "dag-sync", "execution-path", "feedback-synth", "issue-advisor", "replan", "verify-fix", "ci-feedback", "accounting-record", "memory-record", "debt-record", "merge-gate", "merge-apply", "integration-gate", "worktree-clean", "staff", "assign", "challenge", "review-sync", "team-run", "team-run-level", "team-sync", "team-sync-all", "resume"])
+    parser.add_argument("--command", required=True, choices=["approve", "reject", "reconcile", "rework", "refine", "rework-item", "proceed-only", "defer", "next", "override", "openspec-sync", "actions", "capability-synth", "design-synth", "story-synth", "story-enrichment-synth", "openspec-synth", "implementation-plan-synth", "dag-sync", "execution-path", "feedback-synth", "issue-advisor", "replan", "verify-fix", "ci-feedback", "accounting-record", "memory-record", "debt-record", "merge-gate", "merge-apply", "integration-gate", "worktree-clean", "staff", "assign", "challenge", "review-sync", "team-run", "team-run-level", "team-sync", "team-sync-all", "resume"])
     parser.add_argument("--reason", help="Approval, rejection, refine, or rework reason")
     parser.add_argument("--items", help="Comma-separated epic items or stories for targeted commands")
     parser.add_argument("--design-file", help="Optional explicit design.md path to seed workflow context")
@@ -4996,6 +5037,12 @@ def main() -> int:
                 state = handle_override(state, args.reason or "override reason not provided", root, args.slug)
             elif effective_command == "openspec-sync":
                 state = handle_openspec_sync(state, root, args.slug, args.reason or args.items)
+            elif effective_command == "actions":
+                state = handle_actions(state, root, args.slug)
+            elif effective_command == "capability-synth":
+                state = handle_capability_synth(state, root, args.slug, args.reason or args.items)
+            elif effective_command in SYNTH_COMMAND_KINDS:
+                state = handle_stage_synth(state, root, args.slug, effective_command, args.reason or args.items)
             elif effective_command == "dag-sync":
                 state = handle_dag_sync(state, root, args.slug)
             elif effective_command == "execution-path":

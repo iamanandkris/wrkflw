@@ -5,6 +5,13 @@ import argparse
 import re
 from pathlib import Path
 
+from workflow_profile import (
+    parse_planning_profile,
+    profile_domain_packs,
+    profile_mode,
+    profile_story_selection_allows_recommended,
+)
+
 
 STORY_SLICES_MARKER = "<!-- generated-by: wrkflw story slices -->"
 LEGACY_GENERATED_MARKER = "<!-- generated-by: wrkflw capability inventory -->"
@@ -22,16 +29,17 @@ def first_meta_value(text: str, prefix: str) -> str:
     return ""
 
 
-def parse_capabilities(path: Path) -> tuple[str, list[dict[str, str]]]:
-    mode = "general-delivery"
+def parse_capabilities(path: Path) -> tuple[str, dict[str, str], list[dict[str, str]]]:
+    text = read_text(path)
+    raw_profile = parse_planning_profile(text)
+    profile = {key: str(value) for key, value in raw_profile.items() if not isinstance(value, list)}
+    profile["domain_packs"] = ", ".join(profile_domain_packs(raw_profile))
+    mode = profile_mode(raw_profile)
     capabilities: list[dict[str, str]] = []
     current: dict[str, str] | None = None
-    for raw_line in read_text(path).splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.rstrip()
         stripped = line.strip()
-        if stripped.startswith("- Mode:"):
-            mode = stripped.split(":", 1)[1].strip()
-            continue
         if line.startswith("### "):
             if current is not None:
                 capabilities.append(current)
@@ -49,7 +57,7 @@ def parse_capabilities(path: Path) -> tuple[str, list[dict[str, str]]]:
             current["why_now"] = stripped.split(":", 1)[1].strip()
     if current is not None:
         capabilities.append(current)
-    return mode, capabilities
+    return mode, profile, capabilities
 
 
 def parse_context(path: Path) -> dict[str, str]:
@@ -69,8 +77,8 @@ def capability_map(capabilities: list[dict[str, str]]) -> dict[str, dict[str, st
     return {cap["name"]: cap for cap in capabilities}
 
 
-def selected_capabilities(mode: str, capabilities: list[dict[str, str]]) -> list[dict[str, str]]:
-    if mode in {"tutorial-sample", "feature-harness", "product-service", "sql-server-mcp"}:
+def selected_capabilities(profile: dict[str, object], capabilities: list[dict[str, str]]) -> list[dict[str, str]]:
+    if profile_story_selection_allows_recommended(profile):
         allowed = {"required", "recommended"}
     else:
         allowed = {"required"}
@@ -147,13 +155,17 @@ PRODUCT_SERVICE_PRIORITY = {
 }
 
 
-def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug: str) -> list[dict[str, object]]:
+def build_story_specs(profile: dict[str, object], caps: dict[str, dict[str, str]], workflow_slug: str) -> list[dict[str, object]]:
     stories: list[dict[str, object]] = []
+    mode = profile_mode(profile)
+    delivery_kind = str(profile.get("delivery_kind", "general"))
+    runtime_surface = str(profile.get("runtime_surface", "unspecified"))
+    domain_packs = set(profile_domain_packs(profile))
 
     def has(name: str) -> bool:
         return name in caps
 
-    if mode == "tutorial-sample":
+    if delivery_kind == "sample" or mode == "tutorial-sample":
         if has("Core Contract Usage"):
             stories.append(
                 {
@@ -205,7 +217,7 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug:
             )
         return stories
 
-    if mode == "sql-server-mcp":
+    if runtime_surface == "mcp-server" and "database" in domain_packs:
         ordered_groups = [
             (
                 "Bootstrap MCP Stdio Runtime And Connection Config",
@@ -224,7 +236,26 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug:
                 ["Observability And Operational Limits", "Agent Usability Documentation"],
             ),
         ]
-    elif mode == "feature-harness":
+    elif runtime_surface == "frontend" and "game-rules" in domain_packs:
+        ordered_groups = [
+            (
+                "Build Playable Board And Turn Loop",
+                ["Board Rendering And Layout", "Turn Management", "Move Validation"],
+            ),
+            (
+                "Add Game Outcome Detection",
+                ["Win And Draw Detection"],
+            ),
+            (
+                "Add Reset, Replay, And Accessibility",
+                ["Reset And Replay Flow", "Browser Interaction And Accessibility"],
+            ),
+            (
+                "Package Static Browser App And Guidance",
+                ["Static App Packaging And Documentation"],
+            ),
+        ]
+    elif delivery_kind == "harness" or mode == "feature-harness":
         ordered_groups = [
             ("Establish Core Contract Surface", ["Core Contract Usage", "Nested Structures", "Lifecycle And Field Semantics"]),
             ("Add Validation And Sanitization Coverage", ["Field Validation", "Sanitization And Visibility", "Custom Validators"]),
@@ -232,7 +263,7 @@ def build_story_specs(mode: str, caps: dict[str, dict[str, str]], workflow_slug:
             ("Add Runtime Integration Coverage", ["Runtime Integration"]),
             ("Add Developer Guidance", ["Developer Guidance"]),
         ]
-    elif mode == "product-service":
+    elif runtime_surface == "backend-api" or "workflow-governance" in domain_packs or mode == "product-service":
         actionable = [caps[name] for name in caps if caps[name].get("status") in {"required", "recommended"}]
         current_owner = [cap for cap in actionable if cap.get("owner", workflow_slug) == workflow_slug]
         ordered = sorted(
@@ -297,6 +328,7 @@ def render_story_file(
     problem: str,
     goal: str,
     mode: str,
+    profile: dict[str, str],
     stories: list[dict[str, object]],
     completed_dependencies: list[str],
     deferred_follow_up: list[str],
@@ -308,10 +340,20 @@ def render_story_file(
         "",
         "## Context",
         "",
-        f"- Workflow mode: {mode}",
+        f"- Compatibility mode: {mode}",
         f"- Problem: {problem or '-'}",
         f"- Goal: {goal or '-'}",
     ]
+    if profile:
+        lines.extend(
+            [
+                f"- Delivery kind: {profile.get('delivery_kind', '-')}",
+                f"- Runtime surface: {profile.get('runtime_surface', '-')}",
+                f"- Domain packs: {profile.get('domain_packs', '-')}",
+                f"- Assurance level: {profile.get('assurance_level', '-')}",
+                f"- Workflow strategy: {profile.get('workflow_strategy', '-')}",
+            ]
+        )
     if completed_dependencies:
         lines.extend(
             [
@@ -369,9 +411,13 @@ def main() -> int:
         return 0
 
     context = parse_context(wf / "context.md")
-    mode, capabilities = parse_capabilities(wf / "capabilities.md")
-    selected = selected_capabilities(mode, capabilities)
-    stories = build_story_specs(mode, capability_map(selected), args.slug)
+    mode, profile, capabilities = parse_capabilities(wf / "capabilities.md")
+    profile_for_selection: dict[str, object] = dict(profile)
+    profile_for_selection["domain_packs"] = [
+        part.strip() for part in profile.get("domain_packs", "general").split(",") if part.strip()
+    ]
+    selected = selected_capabilities(profile_for_selection, capabilities)
+    stories = build_story_specs(profile_for_selection, capability_map(selected), args.slug)
     completed_dependencies = sorted(
         {
             cap.get("owner", "").strip()
@@ -389,6 +435,7 @@ def main() -> int:
         problem=context.get("Problem", ""),
         goal=context.get("Goal", ""),
         mode=mode,
+        profile=profile,
         stories=stories,
         completed_dependencies=completed_dependencies,
         deferred_follow_up=deferred_follow_up,

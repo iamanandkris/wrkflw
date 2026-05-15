@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from subprocess import run
 
+from workflow_profile import parse_planning_profile, profile_domain_pack_text, profile_mode, profile_review_lines
+
 
 def slugify(text: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")
@@ -222,17 +224,14 @@ def capability_records_from_names(
     return records
 
 
-def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]:
-    mode = "general-delivery"
+def parse_capability_inventory(text: str) -> tuple[dict[str, object], list[dict[str, object]]]:
+    profile = parse_planning_profile(text)
     capabilities: list[dict[str, object]] = []
     current: dict[str, object] | None = None
     current_section: str | None = None
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
         stripped = line.strip()
-        if stripped.startswith("- Mode:"):
-            mode = stripped.split(":", 1)[1].strip()
-            continue
         if line.startswith("### "):
             if current is not None:
                 capabilities.append(current)
@@ -258,7 +257,7 @@ def parse_capability_inventory(text: str) -> tuple[str, list[dict[str, object]]]
             current_section = None
     if current is not None:
         capabilities.append(current)
-    return mode, capabilities
+    return profile, capabilities
 
 
 STOP_WORDS = {
@@ -390,7 +389,8 @@ def main() -> int:
     story_enrichment = read_text(story_file_path).strip()
     enrichment_sections = parse_markdown_sections(story_enrichment)
     story_scope = section_paragraph(enrichment_sections, "Scope")
-    capability_mode, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
+    planning_profile, capability_inventory = parse_capability_inventory(read_text(workflow_dir / "capabilities.md"))
+    capability_mode = profile_mode(planning_profile)
     story_capability_coverage = capability_coverage_values(enrichment_sections, capability_inventory)
     if not story_capability_coverage:
         story_capability_coverage = story_field_values(story_block, "Covers")
@@ -437,7 +437,9 @@ def main() -> int:
     if covered_capabilities:
         proposal_lines.extend(
             [
-                f"- Keep this story aligned to workflow mode `{capability_mode}`.",
+                "- Keep this story aligned to the workflow planning profile:",
+                *[f"  - {line[2:]}" for line in profile_review_lines(planning_profile)],
+                f"  - Compatibility mode: {capability_mode}",
                 "- Treat the following capability categories as intentionally covered by this story:",
                 *[f"  - {capability['name']}" for capability in covered_capabilities],
             ]
@@ -464,8 +466,13 @@ def main() -> int:
             "",
             f"- OpenSpec change: `openspec/changes/{change_slug}`",
             f"- Workflow story context: `{active_story}`",
-            f"- Affects the sample test suite for `{story_title}`.",
-            f"- Workflow mode: `{capability_mode}`",
+            f"- Affects the implementation and validation surface for `{story_title}`.",
+            f"- Compatibility workflow mode: `{capability_mode}`",
+            f"- Delivery kind: `{planning_profile.get('delivery_kind', 'general')}`",
+            f"- Runtime surface: `{planning_profile.get('runtime_surface', 'unspecified')}`",
+            f"- Domain packs: `{profile_domain_pack_text(planning_profile)}`",
+            f"- Assurance level: `{planning_profile.get('assurance_level', 'normal')}`",
+            f"- Workflow strategy: `{planning_profile.get('workflow_strategy', 'simple')}`",
             "",
             "<!-- Migrated workflow story context -->",
             story_enrichment or story_block,

@@ -34,6 +34,13 @@ Also treat these as workflow control intents:
 - `wrkflw:openspec-sync`
 - `wrkflw:next`
 - `wrkflw:resume`
+- `wrkflw:actions`
+- `wrkflw:capability-synth "..."`
+- `wrkflw:design-synth "..."`
+- `wrkflw:story-synth "..."`
+- `wrkflw:story-enrichment-synth "..."`
+- `wrkflw:openspec-synth "..."`
+- `wrkflw:implementation-plan-synth "..."`
 - `wrkflw:dag-sync`
 - `wrkflw:execution-path`
 - `wrkflw:feedback-synth`
@@ -70,7 +77,10 @@ Also treat these as workflow control intents:
 9. If useful, initialize a local workflow workspace in the current repo.
 10. Detect when repository evidence shows the implementation is ahead of workflow metadata or OpenSpec artifacts, and classify that state as workflow artifact drift instead of normal forward progression.
 11. If a gate is rejected, record the rejection and route work back to the right prior stage.
-12. When the user issues `wrkflw:approve`, `wrkflw:reject`, `wrkflw:reconcile`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
+12. At human gates or non-obvious branch points, prefer `wrkflw:actions` to generate `.workflow/<slug>/action-menu.md` and present recommended/alternative commands plus `None / manual suggestion`.
+13. Before capability-review approval on non-trivial workflows, prefer `wrkflw:capability-synth` to generate a Codex-ready packet, then use that packet to synthesize or refine `.workflow/<slug>/capabilities.md` with explicit design/repo evidence.
+14. At semantic planning stages, prefer the matching synthesis command before approval when the generated artifact looks generic or thin: `design-synth`, `story-synth`, `story-enrichment-synth`, `openspec-synth`, or `implementation-plan-synth`.
+15. When the user issues `wrkflw:approve`, `wrkflw:reject`, `wrkflw:reconcile`, or `wrkflw:next`, prefer the companion command handler script over manual state edits.
 
 ## Workspace Convention
 
@@ -236,8 +246,9 @@ Collaborative multi-agent review model:
 - a role may approve with changes, but a blocking Product Owner, Tech Lead, Reviewer QA, or Security/Ops finding must keep the current gate pending or blocked until resolved in the relevant review or conflict artifact
 
 Capability inventory should capture:
-- the inferred workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, or `general-delivery`
-- the capability categories the workflow should consider before writing narrow stories too early
+- the inferred planning profile: delivery kind, runtime surface, domain packs, assurance level, and workflow strategy
+- the compatibility workflow mode, such as `tutorial-sample`, `feature-harness`, `product-service`, `sql-server-mcp`, `browser-game`, or `general-delivery`
+- capability categories composed directly from the planning profile dimensions before writing narrow stories too early
 
 Gate configuration should capture, per gated stage:
 - `capability-review.autoApprove: true|false`
@@ -272,7 +283,7 @@ To update an existing workflow state after approval or rejection, use the compan
 Preferred command handler:
 
 ```text
-python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|reconcile|rework|refine|rework-item|proceed-only|defer|next|resume|override|openspec-sync|dag-sync|execution-path|feedback-synth|issue-advisor|replan|verify-fix|ci-feedback|accounting-record|memory-record|debt-record|merge-gate|merge-apply|integration-gate|worktree-clean|staff|assign|challenge|review-sync|team-run|team-run-level|team-sync|team-sync-all> [--reason "..."] [--items "..."] [--design-file <path>]
+python3 scripts/handle_workflow_command.py --slug <slug> --root <repo-root> --command <approve|reject|reconcile|rework|refine|rework-item|proceed-only|defer|next|resume|override|openspec-sync|actions|capability-synth|design-synth|story-synth|story-enrichment-synth|openspec-synth|implementation-plan-synth|dag-sync|execution-path|feedback-synth|issue-advisor|replan|verify-fix|ci-feedback|accounting-record|memory-record|debt-record|merge-gate|merge-apply|integration-gate|worktree-clean|staff|assign|challenge|review-sync|team-run|team-run-level|team-sync|team-sync-all> [--reason "..."] [--items "..."] [--design-file <path>]
 ```
 
 Behavior expectations:
@@ -320,6 +331,9 @@ Behavior expectations:
 - `wrkflw:defer "..."` should explicitly exclude or postpone the named epic items or stories without rejecting the entire stage.
 - `wrkflw:override "..."` should be reserved for explicit user waivers of a major workflow requirement such as proceeding without OpenSpec.
 - `wrkflw:resume` should restore the latest resumable checkpoint for the lane and continue the original command from the next phase; for `team-sync-all`, it should restore the latest completed result-envelope checkpoint and continue the command phase from remaining unsynced envelopes. It must refuse resume if workflow/OpenSpec inputs changed after rollback.
+- `wrkflw:actions` should regenerate `.workflow/<slug>/action-menu.json` and `.workflow/<slug>/action-menu.md` without advancing workflow state. Use it at gates or branch points to show the recommended command, valid alternatives, material-command warnings, and `None / manual suggestion`.
+- `wrkflw:capability-synth "..."` should regenerate `.workflow/<slug>/capability-synth.md`, `.workflow/<slug>/capability-synth.json`, and validation artifacts. Codex should then use the packet to synthesize richer, evidence-backed capability categories into `.workflow/<slug>/capabilities.md`; the Python command itself packages and validates context but does not call a model.
+- `wrkflw:design-synth "..."`, `wrkflw:story-synth "..."`, `wrkflw:story-enrichment-synth "..."`, `wrkflw:openspec-synth "..."`, and `wrkflw:implementation-plan-synth "..."` should regenerate shared-framework synthesis packets plus validation artifacts. Codex should then use the packet to update the matching workflow artifact semantically; the Python command packages context and validates prerequisites but does not call a model.
 - `wrkflw:dag-sync` should regenerate the derived DAG from `stories.md` and keep `state.md` as the source of truth.
 - `wrkflw:execution-path` should regenerate `.workflow/<slug>/execution-path.json` and `.workflow/<slug>/execution-path.md`; treat it as workflow policy for role routing, not as proof that agents have actually run.
 - `wrkflw:feedback-synth` should regenerate `.workflow/<slug>/feedback-synthesis.json` and `.workflow/<slug>/feedback-synthesis.md`; flagged execution paths should not advance from review to release planning until synthesis exists, is fresh, and recommends `approve`. Promoted failure classes should influence `fix`, `split`, `block`, and `replan` decisions.
